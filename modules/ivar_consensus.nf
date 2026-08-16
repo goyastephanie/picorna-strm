@@ -1,11 +1,11 @@
 process IVAR_CONSENSUS {
     tag "${meta.id}_${ref_info.acc}_${ref_info.tag}"
     label 'process_high'
-    container 'quay.io/biocontainers/ivar:1.4--h6b7c446_1'
+    container 'quay.io/biocontainers/ivar:1.4.4--h077b44d_0'
 
     input:
     tuple val(meta), val(ref_info), path(bam), path(bai)
-    tuple val(meta), val(ref_info), path(ref)
+    tuple val(meta2), val(ref_info2), path(ref)
 
     output:
     tuple val(meta), val(ref_info), path("*.fa"),       optional: true, emit: consensus

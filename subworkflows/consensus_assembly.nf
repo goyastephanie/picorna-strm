@@ -1,18 +1,38 @@
 //
-// 2 iterations of consensus assembly using BWA MEM for alignment and iVar consensus for consensus calling
+// Two iterations of consensus assembly: reads are aligned to the selected
+// reference, a rough consensus is called, reads are re-aligned to that
+// consensus, and the final consensus is called from the second alignment.
+//
+// Optional per-alignment processing, driven by the sequencing mode:
+//   - amplicon    : primer trimming   (ivar trim)
+//   - capture     : duplicate removal (picard MarkDuplicates)
+//   - metagenomic : neither
 //
 
-include { BWA_MEM_ALIGN as BWA_MEM_ALIGN_QUERY                                     } from '../modules/bwa_mem_align'
+include { BWA_MEM_ALIGN as BWA_MEM_ALIGN_QUERY                                      } from '../modules/bwa_mem_align'
 include { IVAR_CONSENSUS_BWA_ALIGN as IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY } from './ivar_consensus_bwa_align'
-include { IVAR_CONSENSUS as BUILD_FINAL_CONSENSUS                                    } from '../modules/ivar_consensus'
-include { PICARD_MARKDUPLICATES as DEDUP_REF                                         } from '../modules/picard_markduplicates'
-include { PICARD_MARKDUPLICATES as DEDUP_CON1                                        } from '../modules/picard_markduplicates'
+include { IVAR_CONSENSUS as BUILD_FINAL_CONSENSUS                                   } from '../modules/ivar_consensus'
+include { MAKE_PRIMER_BED as PRIMER_BED_REF                                         } from '../modules/make_primer_bed'
+include { MAKE_PRIMER_BED as PRIMER_BED_CON1                                        } from '../modules/make_primer_bed'
+include { PRIMER_TRIM as PRIMER_TRIM_REF                                            } from '../modules/primer_trim'
+include { PRIMER_TRIM as PRIMER_TRIM_CON1                                           } from '../modules/primer_trim'
+include { PICARD_MARKDUPLICATES as DEDUP_REF                                        } from '../modules/picard_markduplicates'
+include { PICARD_MARKDUPLICATES as DEDUP_CON1                                       } from '../modules/picard_markduplicates'
+
+// Alignments that failed the coverage/depth thresholds carry a sentinel BAM.
+// ivar trim and picard would both choke on that placeholder, so it is routed
+// around them and mixed back untouched, preserving the exact filename the
+// downstream iVar step checks for.
+def FAILED_BAM = 'FAILED.sorted.bam'
 
 workflow CONSENSUS_ASSEMBLY {
     take:
-    ch_reads    // channel: [ val(meta), path(reads) ]
-    ch_ref      // channel: [ val(meta), val(ref_info), path(ref) ]
-    use_mem2    // val use_mem2
+    ch_reads         // channel: [ val(meta), path(reads) ]
+    ch_ref           // channel: [ val(meta), val(ref_info), path(ref) ]
+    use_mem2         // val: boolean
+    do_primer_trim   // val: boolean
+    do_dedup         // val: boolean
+    primer_fwd       // val: forward primer sequence
 
     main:
 
@@ -23,91 +43,149 @@ workflow CONSENSUS_ASSEMBLY {
     )
 
     //
-    // Optionally remove PCR duplicates from the reference alignment before
-    // building the initial consensus. Recommended for hybridization-capture
-    // libraries; must stay OFF for amplicon data (reads share start
-    // coordinates by design and would be wrongly collapsed).
+    // ---- pass 1: alignment against the selected reference ----
     //
-    // Notes:
-    //   - Failed alignments carry a sentinel "FAILED.sorted.bam"; Picard would
-    //     choke on that dummy file, so we branch those out, dedup only real
-    //     BAMs, then mix the sentinels back untouched.
-    //   - Picard runs asynchronously, so its output order need not match the
-    //     reference channel. iVar pairs its two inputs positionally, so we
-    //     re-join by [meta, ref_info] and split back with multiMap to keep the
-    //     BAM and reference channels in lockstep.
-    //
-    ch_init_bam = BWA_MEM_ALIGN_QUERY.out.bam
-    ch_init_ref = BWA_MEM_ALIGN_QUERY.out.ref
-    if (params.remove_duplicates) {
-        BWA_MEM_ALIGN_QUERY.out.bam
-            .branch { meta, ref_info, bam, bai ->
-                failed: bam.name == 'FAILED.sorted.bam'
+    ch_bam1 = BWA_MEM_ALIGN_QUERY.out.bam
+    ch_ref1 = BWA_MEM_ALIGN_QUERY.out.ref
+
+    if (do_primer_trim) {
+        ch_bam1
+            .join(ch_ref1, by: [0, 1])
+            .branch { meta, ref_info, bam, bai, ref ->
+                failed: bam.name == FAILED_BAM
                 pass:   true
             }
-            .set { ch_ref_bam_split }
+            .set { ch_pt1 }
 
-        DEDUP_REF ( ch_ref_bam_split.pass )
-
-        DEDUP_REF.out.bam
-            .mix( ch_ref_bam_split.failed )
-            .join( BWA_MEM_ALIGN_QUERY.out.ref, by: [0, 1] )
+        ch_pt1.pass
             .multiMap { meta, ref_info, bam, bai, ref ->
                 bam: [ meta, ref_info, bam, bai ]
                 ref: [ meta, ref_info, ref ]
             }
-            .set { ch_init }
+            .set { ch_pt1_in }
 
-        ch_init_bam = ch_init.bam
-        ch_init_ref = ch_init.ref
+        // locate the primer (python image), then trim by coordinate (iVar image)
+        PRIMER_BED_REF ( ch_pt1_in.ref, primer_fwd )
+
+        ch_pt1_in.bam
+            .join(PRIMER_BED_REF.out.bed, by: [0, 1])
+            .multiMap { meta, ref_info, bam, bai, bed ->
+                bam: [ meta, ref_info, bam, bai ]
+                bed: [ meta, ref_info, bed ]
+            }
+            .set { ch_pt1_trim }
+
+        PRIMER_TRIM_REF ( ch_pt1_trim.bam, ch_pt1_trim.bed )
+
+        ch_bam1 = PRIMER_TRIM_REF.out.bam
+            .mix( ch_pt1.failed.map { meta, ref_info, bam, bai, ref -> [ meta, ref_info, bam, bai ] } )
     }
 
+    if (do_dedup) {
+        ch_bam1
+            .branch { meta, ref_info, bam, bai ->
+                failed: bam.name == FAILED_BAM
+                pass:   true
+            }
+            .set { ch_dd1 }
+
+        DEDUP_REF ( ch_dd1.pass )
+
+        ch_bam1 = DEDUP_REF.out.bam.mix( ch_dd1.failed )
+    }
+
+    // Re-synchronise: the optional steps above run asynchronously, so the BAM
+    // order need not match the reference channel any more. iVar pairs its two
+    // inputs positionally, so re-join by [meta, ref_info] and split again.
+    ch_bam1
+        .join(ch_ref1, by: [0, 1])
+        .multiMap { meta, ref_info, bam, bai, ref ->
+            bam: [ meta, ref_info, bam, bai ]
+            ref: [ meta, ref_info, ref ]
+        }
+        .set { ch_pass1 }
+
     IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY(
-        ch_init_bam,
-        ch_init_ref,
+        ch_pass1.bam,
+        ch_pass1.ref,
         BWA_MEM_ALIGN_QUERY.out.reads,
         use_mem2
     )
 
     //
-    // Optionally remove PCR duplicates from the alignment to the initial
-    // consensus before building the final (delivered) consensus.
+    // ---- pass 2: alignment against the first consensus ----
     //
-    ch_final_bam       = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.bam
-    ch_final_consensus = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.consensus
-    if (params.remove_duplicates) {
-        IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.bam
-            .branch { meta, ref_info, bam, bai ->
-                failed: bam.name == 'FAILED.sorted.bam'
+    ch_bam2 = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.bam
+    ch_ref2 = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.consensus
+
+    if (do_primer_trim) {
+        ch_bam2
+            .join(ch_ref2, by: [0, 1])
+            .branch { meta, ref_info, bam, bai, ref ->
+                failed: bam.name == FAILED_BAM
                 pass:   true
             }
-            .set { ch_con1_bam_split }
+            .set { ch_pt2 }
 
-        DEDUP_CON1 ( ch_con1_bam_split.pass )
-
-        DEDUP_CON1.out.bam
-            .mix( ch_con1_bam_split.failed )
-            .join( IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.consensus, by: [0, 1] )
-            .multiMap { meta, ref_info, bam, bai, consensus ->
-                bam:       [ meta, ref_info, bam, bai ]
-                consensus: [ meta, ref_info, consensus ]
+        ch_pt2.pass
+            .multiMap { meta, ref_info, bam, bai, ref ->
+                bam: [ meta, ref_info, bam, bai ]
+                ref: [ meta, ref_info, ref ]
             }
-            .set { ch_final }
+            .set { ch_pt2_in }
 
-        ch_final_bam       = ch_final.bam
-        ch_final_consensus = ch_final.consensus
+        // locate the primer (python image), then trim by coordinate (iVar image)
+        PRIMER_BED_CON1 ( ch_pt2_in.ref, primer_fwd )
+
+        ch_pt2_in.bam
+            .join(PRIMER_BED_CON1.out.bed, by: [0, 1])
+            .multiMap { meta, ref_info, bam, bai, bed ->
+                bam: [ meta, ref_info, bam, bai ]
+                bed: [ meta, ref_info, bed ]
+            }
+            .set { ch_pt2_trim }
+
+        PRIMER_TRIM_CON1 ( ch_pt2_trim.bam, ch_pt2_trim.bed )
+
+        ch_bam2 = PRIMER_TRIM_CON1.out.bam
+            .mix( ch_pt2.failed.map { meta, ref_info, bam, bai, ref -> [ meta, ref_info, bam, bai ] } )
     }
 
+    if (do_dedup) {
+        ch_bam2
+            .branch { meta, ref_info, bam, bai ->
+                failed: bam.name == FAILED_BAM
+                pass:   true
+            }
+            .set { ch_dd2 }
+
+        DEDUP_CON1 ( ch_dd2.pass )
+
+        ch_bam2 = DEDUP_CON1.out.bam.mix( ch_dd2.failed )
+    }
+
+    ch_bam2
+        .join(ch_ref2, by: [0, 1])
+        .multiMap { meta, ref_info, bam, bai, ref ->
+            bam: [ meta, ref_info, bam, bai ]
+            ref: [ meta, ref_info, ref ]
+        }
+        .set { ch_pass2 }
+
     BUILD_FINAL_CONSENSUS (
-        ch_final_bam,
-        ch_final_consensus
+        ch_pass2.bam,
+        ch_pass2.ref
     )
 
     emit:
     final_consensus     = BUILD_FINAL_CONSENSUS.out.consensus
     initial_consensus   = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.consensus
-    bam                 = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.bam       // channel: [ val(meta), val(ref_info), path(bam), path(bai) ]
-    reads               = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.reads     // channel: [ val(meta), path(reads) ]
+    bam                 = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.bam   // channel: [ val(meta), val(ref_info), path(bam), path(bai) ]
+    reads               = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.reads // channel: [ val(meta), path(reads) ]
     init_covstats       = BWA_MEM_ALIGN_QUERY.out.covstats
     final_covstats      = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.covstats
+    // the exact alignment + reference the final consensus was called from,
+    // ready for variant calling
+    final_bam           = ch_pass2.bam
+    final_ref           = ch_pass2.ref
 }

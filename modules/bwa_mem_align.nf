@@ -5,7 +5,7 @@ process BWA_MEM_ALIGN {
 
     input:
     tuple val(meta), path(fastq)
-    tuple val(meta), val(ref_info), path(ref)
+    tuple val(meta2), val(ref_info), path(ref)
     val use_mem2
 
     output:
@@ -53,8 +53,11 @@ process BWA_MEM_ALIGN {
     prep_pandepth_output.py ${prefix}_depth.tsv $ref ${prefix}_covstats.tsv \\
         --extra_cols "reads_mapped_${iter}:\$mapped"
 
-    coverage=\$(awk 'BEGIN {FS="\t"} NR>1 {print \$5}' "${prefix}_covstats.tsv")
-    mean_depth=\$(awk 'BEGIN {FS="\t"} NR>1 {print \$4}' "${prefix}_covstats.tsv")
+    # covstats columns (see bin/prep_pandepth_output.py COV_COLS):
+    # 1 #rname  2 startpos  3 endpos  4 numreads  5 covbases
+    # 6 coverage(%)  7 meandepth  8 meanbaseq  9 meanmapq
+    coverage=\$(awk 'BEGIN {FS="\t"} NR>1 {print \$6}' "${prefix}_covstats.tsv")
+    mean_depth=\$(awk 'BEGIN {FS="\t"} NR>1 {print \$7}' "${prefix}_covstats.tsv")
 
     # Check if thresholds are met
     if [ "\$(echo "\$coverage >= $min_coverage" | bc)" -eq 1 ] && [ "\$(echo "\$mean_depth >= $min_depth" | bc)" -eq 1 ]; then

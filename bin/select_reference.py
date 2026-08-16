@@ -89,9 +89,13 @@ if __name__ == "__main__":
         output_file_name = args.b + "_failed_assembly.tsv"
         output_file = open(output_file_name, "w")
 
-        output_text = str(
-            sorted(rec, key=lambda line: float(line.split("\t")[4]), reverse=True)[0]
+        # rank by covered percent (COV_COL_IDX), matching the threshold above
+        ranked = sorted(
+            (l for l in rec if l.strip()),
+            key=lambda line: float(line.split("\t")[COV_COL_IDX]),
+            reverse=True,
         )
+        output_text = str(ranked[0]) if ranked else "no alignments to any reference\n" 
         output_file.write(header)
         output_file.write("\n")
         output_file.write(output_text)

@@ -40,6 +40,11 @@ process PICARD_MARKDUPLICATES {
     if [ -f ${prefix}.markdup.bai ]; then
         mv ${prefix}.markdup.bai ${prefix}.markdup.bam.bai
     fi
+
+    if [ ! -f ${prefix}.markdup.bam.bai ]; then
+        echo "ERROR: picard produced no index. Do not override --CREATE_INDEX or --ASSUME_SORT_ORDER via ext.args." >&2
+        exit 1
+    fi
     """
 
     stub:

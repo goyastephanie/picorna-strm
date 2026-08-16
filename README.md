@@ -2,7 +2,7 @@
 
 **Reference-based assembly and VP1 genotyping of picornavirus genomes from short-read metagenomic, capture and amplicon sequencing.**
 
-`picorna-strm` is **based on [revica-strm](https://github.com/greninger-lab/revica-strm)** (Greninger Lab, UW Virology), adapted and re-tuned for picornaviruses — small RNA virus genomes with extraordinary genetic diversity. It keeps revica-strm's two-pass consensus strategy and adds a curated picornavirus reference database, an optional VP1 genotyping module, PCR-duplicate removal, and a number of correctness fixes.
+`picorna-strm` is **based on [revica-strm](https://github.com/greninger-lab/revica-strm)** (Greninger Lab, UW Virology), adapted and re-tuned for picornaviruses — small RNA virus genomes with extraordinary genetic diversity. It keeps revica-strm's two-pass consensus strategy and adds a curated picornavirus reference database, sequencing-mode presets (amplicon / capture / metagenomic), amplicon primer trimming, PCR-duplicate removal, VP1 genotyping, variant calling, and a number of correctness fixes.
 
 This is an independent fork: the pipeline is expected to keep diverging from upstream as it is further adapted to picornavirus biology.
 
@@ -12,13 +12,14 @@ This is an independent fork: the pipeline is expected to keep diverging from ups
 
 For each sample, the pipeline runs:
 
-1. **Quality filtering** — `fastp` (adapter and quality trimming).
-2. *(optional)* **Host removal** — Kraken2 against a user-supplied host database.
+1. **Quality filtering** — `fastp` (adapter and quality trimming). Always runs.
+2. *(optional)* **Host removal** — Kraken2 against a host database **you supply** (`--run_kraken2 --kraken2_db`); none is bundled. See `docs/making_kraken2_human_db.md`.
 3. *(optional)* **Subsampling** — `seqtk`, 6M reads by default.
 4. **Reference detection** — maps reads against the whole picornavirus database and keeps every reference passing coverage/depth thresholds. **More than one reference can be selected per sample**, so co-infections yield one assembly per organism.
-5. **First consensus** — reads are mapped to each selected reference; `iVar` builds a rough consensus.
-6. **Final consensus** — reads are re-mapped against that first consensus (now a reference of the same organism that was actually sequenced) and `iVar` builds the delivered assembly.
-7. *(optional)* **VP1 genotyping** — each final consensus is typed by `blastn` against a nucleotide VP1 database.
+5. **First consensus** — reads are mapped to each selected reference and `iVar` builds a rough consensus. Depending on `--mode`, the alignment is primer-trimmed (amplicon) or deduplicated (capture) first.
+6. **Final consensus** — reads are re-mapped against that first consensus (now a reference of the same organism that was actually sequenced), the same mode-specific correction is applied again, and `iVar` builds the delivered assembly.
+7. **Per-position VCF** — `bcftools mpileup` on that final alignment against the sample's own consensus, recording intra-host diversity at every covered position.
+8. *(optional)* **VP1 genotyping** — each final consensus is typed by `blastn` against a nucleotide VP1 database.
 
 VP1 typing is deliberately **decoupled** from reference selection: assembly still uses whole-genome mapping, and VP1 provides the authoritative genotype call on top of the finished consensus. Rhinovirus types are defined by VP1 divergence, so VP1 can resolve genotype pairs that whole-genome mapping cannot separate.
 
@@ -45,13 +46,17 @@ The first non-flag argument is the FASTQ directory; it must come **before** any 
 Typical runs:
 
 ```bash
-# hybridization capture (duplicates removed)
-./picorna-strm /path/to/capture_fastqs -profile docker \
-    --output results_capture --rhinovirus --remove_duplicates --sample false
-
-# amplicon (NO deduplication: reads share start coordinates by design)
+# amplicon: forward primer trimmed from consensus and variants
 ./picorna-strm /path/to/amplicon_fastqs -profile docker \
-    --output results_amplicon --rhinovirus
+    --mode amplicon --output results_amplicon --rhinovirus
+
+# hybridization capture: PCR duplicates removed
+./picorna-strm /path/to/capture_fastqs -profile docker \
+    --mode capture --output results_capture --rhinovirus --sample false
+
+# shotgun metagenomics: no primers, few PCR cycles -> neither
+./picorna-strm /path/to/metagenomic_fastqs -profile docker \
+    --mode metagenomic --output results_meta --rhinovirus --sample false
 ```
 
 Run `./picorna-strm -h` for all options.
@@ -65,6 +70,47 @@ Sample names must be unique **before the first underscore**:
 
 If filenames contain no underscore, the same logic applies to the first `.`.
 
+## Sequencing modes
+
+`--mode` tells the pipeline how the library was made; everything library-specific follows from it.
+
+| `--mode` | Primer trimming | Duplicate removal | Use for |
+|---|---|---|---|
+| `amplicon` | yes | **no** | targeted amplicon sequencing |
+| `capture` | no | yes | hybridization capture / enrichment |
+| `metagenomic` | no | no | shotgun metagenomics (default) |
+
+The pairing is not arbitrary. Amplicon reads share start coordinates by design, so deduplicating them would collapse genuine molecules and destroy the depth; conversely their primer-derived bases reflect the primer rather than the sample and must be removed. Capture libraries have no primers to trim but do accumulate PCR duplicates that inflate apparent depth. Shotgun metagenomics has neither problem, since there are no primers and few PCR cycles.
+
+Both operations are applied to **each of the two alignment passes**, so the first consensus, the final consensus and the variant calls are all derived from the same corrected alignment.
+
+### Primer trimming
+
+Trimming uses `ivar trim` (iVar 1.4.4; 1.4.1-1.4.3 fixed several `trim` bugs, so older versions are not recommended). Trimming is by **coordinate**, not by matching the primer sequence in the read, so reads carrying only part of the primer are handled correctly. The coordinates are located per task with `bin/make_primer_bed.py`, which searches the reference of that particular alignment for `--primer_fwd` (IUPAC codes supported, up to `--primer_max_mismatch` mismatches, both strands). Doing it per task matters because the primer sits at a different coordinate in every genotype, and at a different coordinate again in the sample's own first consensus.
+
+The default primer is the conserved 5'UTR forward primer `TCCTCCGGYCCCTGAATGYGGCTAA`. The reverse primer anneals to the genomic poly(A) tail, so there is nothing to trim at the 3' end. If the primer is not found in a given reference, an empty BED is written and the alignment passes through untrimmed rather than failing.
+
+Reads that contain no primer are kept (`ivar trim -e`), so coverage away from the primer-binding site is unaffected.
+
+## Per-position VCF (intra-host diversity)
+
+With `--call_variants` (on by default), `bcftools mpileup` runs on the **same alignment the final consensus was built from** — primer-trimmed and/or deduplicated to match — using that sample's own first consensus as the reference. One VCF per consensus genome is written to `<output>/vcf/`.
+
+This is deliberately *not* a variant caller: `bcftools call` is not run, so **every covered position** is reported with its allelic depths (`FORMAT/AD`) and total depth (`FORMAT/DP`). The file is therefore a complete record of **intra-host, intra-genotype diversity**, from which allele frequencies can be recomputed at any site downstream — including sites that no caller would have flagged. It reproduces:
+
+```bash
+bcftools mpileup -f <consensus> -a FORMAT/AD,FORMAT/DP \
+    --max-depth 1000000 --min-BQ 20 --min-MQ 20 -Ov -o <sample>.vcf <bam>
+```
+
+Tunable with `--vcf_min_bq`, `--vcf_min_mq` and `--vcf_max_depth`.
+
+Because the reference is the sample's own consensus, these are differences **within** the sample, not differences from a database reference. In `--mode amplicon` the primer-binding site is absent from the alignment, so no primer-derived position ever appears in the VCF.
+
+### Optional: called-variant table
+
+`--ivar_variants` additionally runs `ivar variants` on the same alignment, producing `*.variants.tsv` in `final_files/variants/` — a filtered table of variants with per-allele depth and frequency. Thresholds: `--ivar_var_q`, `--ivar_var_t`, `--ivar_var_m`. The VCF itself comes from `bcftools mpileup` above; iVar is used here only for its allele-frequency table.
+
 ## Output
 
 Inside `--output`:
@@ -75,7 +121,10 @@ Inside `--output`:
 | `final_files/align_to_db/` | coverage of every database reference — useful to audit what was and was not detected |
 | `final_files/align_to_selected_ref/` | BAMs against the selected reference(s) |
 | `final_files/align_to_consensus/` | first consensus and BAMs of the second pass |
+| `vcf/` | per-position VCF per consensus genome (intra-host diversity) |
+| `final_files/variants/` | called-variant table, with `--ivar_variants` |
 | `final_files/vp1_genotyping/` | per-consensus VP1 typing (with `--rhinovirus`) |
+| `primer_trim/` | primer BED located for each alignment (`--mode amplicon`) |
 | `final_files/SRA/` | mapped reads as FASTQ, ready for submission |
 | `<run_name>_summary.tsv` | reads, coverage, depth, consensus length, %N per assembly |
 | `<run_name>_vp1_genotypes.tsv` | consolidated VP1 genotype calls |
@@ -207,8 +256,11 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 | `--sample` | `6000000` | subsampling; use `false` to disable (recommended for unbalanced co-infections) |
 | `--ref_min_cov` / `--ref_min_depth` | `30` / `3` | reference selection thresholds. For high-coverage capture data, `--ref_min_cov 60` suppresses spurious relatives of genotypes missing from the database |
 | `--ivar_fin_m` | `5` | minimum depth for a final consensus base. At ~10x mean depth, a value of 10 masks ~47% of a minor co-infecting genome as N versus ~8% at 5 |
-| `--remove_duplicates` | off | PCR duplicate removal. **Capture only** — never for amplicon |
+| `--mode` | `metagenomic` | `amplicon` \| `capture` \| `metagenomic` — see above |
+| `--primer_fwd` | 5'UTR primer | forward primer for `--mode amplicon` (IUPAC allowed) |
+| `--call_variants` | on | per-position VCF (`vcf/`) against the final consensus |
 | `--rhinovirus` | off | enable VP1 genotyping |
+| `--run_kraken2` + `--kraken2_db` | off | remove host reads before assembly (see `docs/making_kraken2_human_db.md`) |
 | `--vp1_min_identity` / `--vp1_min_aln_len` | `72` / `300` | minimum blastn identity (%) and alignment length (nt) for a VP1 hit |
 | `--fastp_container` | biocontainers 0.23.2 | override if the default image misbehaves on your platform |
 
@@ -221,7 +273,7 @@ A `no_hit` result is not a failure — non-rhinovirus consensuses (enterovirus, 
 ## Known limitations
 
 - Two strains of the **same** genotype in one sample collapse into a single assembly (one reference per tag).
-- **Amplicon primer sequences are not trimmed.** Bases within primer-binding sites reflect the primer, not the sample. Interpret those positions with caution for amplicon data.
+- Only the **forward** primer is trimmed in `--mode amplicon`, which matches a design whose reverse primer anneals to the poly(A) tail. A multi-amplicon (tiling) scheme would need a full primer BED instead.
 - A genotype present in the sample but **absent from the genome database** scatters its reads across related genotypes, several of which may pass the selection thresholds with partial (~35–55%) coverage. Genuine detections typically show ~99–100% coverage.
 
 ## Credits

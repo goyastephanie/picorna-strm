@@ -15,24 +15,17 @@ workflow FASTQ_TRIM_FASTP_MULTIQC {
     ch_adapter_fasta        // channel: [ path(fasta) ]
     val_save_trimmed_fail   // value: boolean
     val_save_merged         // value: boolean
-    val_skip_fastp          // value: boolean
     val_min_read_trim_limit // value: int 
 
     main:
-    ch_trim_reads        = ch_reads
-    ch_trim_json         = Channel.empty()
-    ch_trim_html         = Channel.empty()
-    ch_trim_log          = Channel.empty()
-    ch_trim_reads_fail   = Channel.empty()
-    ch_trim_reads_merged = Channel.empty()
-
-    if (!val_skip_fastp) {
-        FASTP (
-            ch_reads,
-            ch_adapter_fasta,
-            val_save_trimmed_fail,
-            val_save_merged
-        )
+    // fastp always runs: every downstream step assumes quality-filtered reads,
+    // and MULTIQC/SUMMARY both depend on its reports.
+    FASTP (
+        ch_reads,
+        ch_adapter_fasta,
+        val_save_trimmed_fail,
+        val_save_merged
+    )
     ch_trim_reads        = FASTP.out.reads
     ch_trim_json         = FASTP.out.json
     ch_trim_html         = FASTP.out.html
@@ -40,22 +33,20 @@ workflow FASTQ_TRIM_FASTP_MULTIQC {
     ch_trim_reads_fail   = FASTP.out.reads_fail
     ch_trim_reads_merged = FASTP.out.reads_merged
 
+    // filter first, THEN map: a map whose closure has no else branch returns
+    // null for the samples it rejects, and that null is emitted into the
+    // channel and breaks the next process that destructures it
     ch_trim_reads
         .join(ch_trim_json)
-        .map {
-            meta, reads, json ->
-                if (getFastpReadsAfterFiltering(json) >= val_min_read_trim_limit ) {
-                    [ meta, reads ]
-                }
-        }
+        .filter { meta, reads, json -> getFastpReadsAfterFiltering(json) >= val_min_read_trim_limit }
+        .map { meta, reads, json -> [ meta, reads ] }
         .set { ch_trim_reads }
 
-        MULTIQC (
-            params.run_name,
-            file("${params.output}").toAbsolutePath().toString(),
-            ch_trim_html.map{meta, file -> file.parent.toAbsolutePath() }.collect(),
-        )
-    }
+    MULTIQC (
+        params.run_name,
+        file("${params.output}").toAbsolutePath().toString(),
+        ch_trim_html.map{meta, file -> file.parent.toAbsolutePath() }.collect(),
+    )
 
     emit:
     reads             = ch_trim_reads         // channel: [ val(meta), path(reads) ]

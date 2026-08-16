@@ -25,6 +25,29 @@ if (params.input) { ch_input = file(params.input) } else { exit 1, 'Input sample
 
 if (!params.refs) { exit 1, "Reference database not specified!"}
 
+// ---- sequencing mode -------------------------------------------------------
+def VALID_MODES = ['amplicon', 'capture', 'metagenomic']
+if (!(params.mode in VALID_MODES)) {
+    exit 1, "Invalid --mode '${params.mode}'. Choose one of: ${VALID_MODES.join(', ')}"
+}
+
+// The mode sets the library-specific processing; the individual flags remain
+// available as manual overrides.
+def do_primer_trim = params.trim_primers     || params.mode == 'amplicon'
+def do_dedup       = params.remove_duplicates || params.mode == 'capture'
+
+if (do_primer_trim && !params.primer_fwd) {
+    exit 1, "--mode amplicon (or --trim_primers) requires a forward primer (--primer_fwd)!"
+}
+
+log.info ""
+log.info "  sequencing mode : ${params.mode}"
+log.info "  primer trimming : ${do_primer_trim ? "yes (${params.primer_fwd})" : 'no'}"
+log.info "  duplicate removal: ${do_dedup ? 'yes' : 'no'}"
+log.info "  per-position VCF: ${params.call_variants ? 'yes' : 'no'}"
+log.info "  iVar variants   : ${params.ivar_variants ? 'yes' : 'no'}"
+log.info ""
+
 // optional rhinovirus VP1 genotyping module
 if (params.rhinovirus) {
     if (!params.vp1_db) { exit 1, "--rhinovirus requires a VP1 nucleotide database (--vp1_db)!" }
@@ -46,6 +69,8 @@ include { SUMMARY                   } from './modules/summary'
 include { KRAKEN2                   } from './modules/kraken2'
 include { BAM_TO_FASTQ              } from './modules/bam_to_fastq'
 include { VP1_TYPE                  } from './modules/vp1_type'
+include { IVAR_VARIANTS             } from './modules/ivar_variants'
+include { BCFTOOLS_MPILEUP         } from './modules/bcftools_mpileup'
 
 ////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////
@@ -83,7 +108,6 @@ workflow {
                 params.adapter_trimming,
                 params.save_trimmed_fail,
                 params.save_merged,
-                params.skip_fastp,
                 params.min_trimmed_reads,
                 )
 
@@ -93,11 +117,12 @@ workflow {
             KRAKEN2 (
                     FASTQ_TRIM_FASTP_MULTIQC.out.reads,
                     file(params.kraken2_db),
-                    params.kraken2_variants_host_filter || params.kraken2_assembly_host_filter,
-                    params.kraken2_variants_host_filter || params.kraken2_assembly_host_filter
+                    params.kraken2_host_filter || params.save_kraken2_classified_reads || params.save_kraken2_unclassified_reads,
+                    params.save_kraken2_classified_reads
                     )
 
-                if (params.kraken2_variants_host_filter) {
+                // actually swap in the host-depleted reads
+                if (params.kraken2_host_filter) {
                     ch_sample_input = KRAKEN2.out.unclassified_reads_fastq
                 }
         }
@@ -122,8 +147,32 @@ workflow {
         CONSENSUS_ASSEMBLY (
                 REFERENCE_PREP.out.reads,
                 REFERENCE_PREP.out.ref,
-                params.use_mem2
+                params.use_mem2,
+                do_primer_trim,
+                do_dedup,
+                params.primer_fwd
                 )
+
+        //
+        // Variant calling against the sample's own final consensus, on the
+        // same (primer-trimmed / deduplicated) alignment used to build it.
+        //
+        // Per-position pileup VCF against the sample's own consensus: the
+        // record of intra-host / intra-genotype diversity.
+        if (params.call_variants) {
+            BCFTOOLS_MPILEUP (
+                CONSENSUS_ASSEMBLY.out.final_bam,
+                CONSENSUS_ASSEMBLY.out.final_ref
+            )
+        }
+
+        // Optional filtered variant table with allele frequencies.
+        if (params.ivar_variants) {
+            IVAR_VARIANTS (
+                CONSENSUS_ASSEMBLY.out.final_bam,
+                CONSENSUS_ASSEMBLY.out.final_ref
+            )
+        }
 
         BAM_TO_FASTQ(
             CONSENSUS_ASSEMBLY.out.bam,
