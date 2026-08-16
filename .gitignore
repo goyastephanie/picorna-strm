@@ -1,0 +1,57 @@
+# Nextflow runtime
+work/
+.nextflow/
+.nextflow.log*
+.nextflow.pid
+*.nextflow.log*
+report.html*
+timeline.html*
+trace.txt*
+dag.dot*
+
+# pipeline outputs
+results/
+results_*/
+revica_output/
+picorna_output/
+resultados*/
+samplesheet.csv
+params.json
+
+# BLAST / BWA / samtools indexes (rebuilt on the fly)
+*.nhr
+*.nin
+*.nsq
+*.ndb
+*.not
+*.ntf
+*.nto
+*.pdb
+*.phr
+*.pin
+*.pjs
+*.pog
+*.pos
+*.pot
+*.psq
+*.ptf
+*.pto
+*.amb
+*.ann
+*.bwt
+*.pac
+*.sa
+*.fai
+
+# data that should not live in git
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bai
+
+# OS / editors
+.DS_Store
+__pycache__/
+*.pyc

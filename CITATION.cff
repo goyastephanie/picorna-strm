@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use picorna-strm, please cite this fork and the original revica-strm."
+title: "picorna-strm: reference-based assembly and VP1 genotyping of picornavirus genomes"
+abstract: >-
+  A Nextflow pipeline for reference-based consensus assembly of picornavirus
+  genomes from short-read sequencing, with optional VP1 genotyping. Based on
+  revica-strm, adapted for the genetic diversity of picornaviruses.
+type: software
+authors:
+  - family-names: "Goya"
+    given-names: "Stephanie"
+    email: "sgoya@uw.edu"
+    affiliation: "University of Washington"
+license: GPL-3.0
+references:
+  - type: software
+    title: "revica-strm"
+    notes: "Upstream pipeline this work is based on"
+    repository-code: "https://github.com/greninger-lab/revica-strm"
+    authors:
+      - family-names: "Piliper"
+        given-names: "Eli"
+      - family-names: "Sereewit"
+        given-names: "Jaydee"
+      - family-names: "Goya"
+        given-names: "Stephanie"
+      - family-names: "Greninger"
+        given-names: "Alex L"
