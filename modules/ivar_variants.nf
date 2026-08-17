@@ -2,7 +2,7 @@
 // Variant calling against the sample's own final consensus (iVar variants).
 //
 // Runs on the same alignment used to build the final consensus, so the
-// variants are primer-trimmed and deduplicated exactly like the consensus is.
+// variants are primer-trimmed exactly like the consensus is.
 // Emits iVar's native TSV with per-allele depth and frequency. The per-position
 // VCF is produced separately by BCFTOOLS_MPILEUP.
 //

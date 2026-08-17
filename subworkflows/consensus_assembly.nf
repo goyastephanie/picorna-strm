@@ -4,9 +4,9 @@
 // consensus, and the final consensus is called from the second alignment.
 //
 // Optional per-alignment processing, driven by the sequencing mode:
-//   - amplicon    : primer trimming   (ivar trim)
-//   - capture     : duplicate removal (picard MarkDuplicates)
-//   - metagenomic : neither
+//   - amplicon    : primer trimming (ivar trim)
+//   - capture     : reserved; currently identical to metagenomic
+//   - metagenomic : none
 //
 
 include { BWA_MEM_ALIGN as BWA_MEM_ALIGN_QUERY                                      } from '../modules/bwa_mem_align'
@@ -16,13 +16,11 @@ include { MAKE_PRIMER_BED as PRIMER_BED_REF                                     
 include { MAKE_PRIMER_BED as PRIMER_BED_CON1                                        } from '../modules/make_primer_bed'
 include { PRIMER_TRIM as PRIMER_TRIM_REF                                            } from '../modules/primer_trim'
 include { PRIMER_TRIM as PRIMER_TRIM_CON1                                           } from '../modules/primer_trim'
-include { PICARD_MARKDUPLICATES as DEDUP_REF                                        } from '../modules/picard_markduplicates'
-include { PICARD_MARKDUPLICATES as DEDUP_CON1                                       } from '../modules/picard_markduplicates'
 
 // Alignments that failed the coverage/depth thresholds carry a sentinel BAM.
-// ivar trim and picard would both choke on that placeholder, so it is routed
-// around them and mixed back untouched, preserving the exact filename the
-// downstream iVar step checks for.
+// ivar trim would choke on that placeholder, so it is routed around it and
+// mixed back untouched, preserving the exact filename the downstream iVar step
+// checks for.
 def FAILED_BAM = 'FAILED.sorted.bam'
 
 workflow CONSENSUS_ASSEMBLY {
@@ -31,7 +29,6 @@ workflow CONSENSUS_ASSEMBLY {
     ch_ref           // channel: [ val(meta), val(ref_info), path(ref) ]
     use_mem2         // val: boolean
     do_primer_trim   // val: boolean
-    do_dedup         // val: boolean
     primer_fwd       // val: forward primer sequence
 
     main:
@@ -81,18 +78,6 @@ workflow CONSENSUS_ASSEMBLY {
             .mix( ch_pt1.failed.map { meta, ref_info, bam, bai, ref -> [ meta, ref_info, bam, bai ] } )
     }
 
-    if (do_dedup) {
-        ch_bam1
-            .branch { meta, ref_info, bam, bai ->
-                failed: bam.name == FAILED_BAM
-                pass:   true
-            }
-            .set { ch_dd1 }
-
-        DEDUP_REF ( ch_dd1.pass )
-
-        ch_bam1 = DEDUP_REF.out.bam.mix( ch_dd1.failed )
-    }
 
     // Re-synchronise: the optional steps above run asynchronously, so the BAM
     // order need not match the reference channel any more. iVar pairs its two
@@ -151,18 +136,6 @@ workflow CONSENSUS_ASSEMBLY {
             .mix( ch_pt2.failed.map { meta, ref_info, bam, bai, ref -> [ meta, ref_info, bam, bai ] } )
     }
 
-    if (do_dedup) {
-        ch_bam2
-            .branch { meta, ref_info, bam, bai ->
-                failed: bam.name == FAILED_BAM
-                pass:   true
-            }
-            .set { ch_dd2 }
-
-        DEDUP_CON1 ( ch_dd2.pass )
-
-        ch_bam2 = DEDUP_CON1.out.bam.mix( ch_dd2.failed )
-    }
 
     ch_bam2
         .join(ch_ref2, by: [0, 1])

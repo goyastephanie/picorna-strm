@@ -8,7 +8,7 @@
 // any site downstream -- including sites no caller would have flagged.
 //
 // The alignment is the one the FINAL consensus was built from (reads vs the
-// first consensus), already primer-trimmed and/or deduplicated according to
+// first consensus), already primer-trimmed according to
 // --mode, and the reference is that same first consensus.
 //
 process BCFTOOLS_MPILEUP {

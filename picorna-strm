@@ -90,30 +90,28 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --vp1_db            {ARG_PATH}      Nucleotide VP1 database (default: db/VP1_NT_from_picorna.fasta)
 --vp1_min_identity  {ARG_INT}       Min blastn % identity for a VP1 hit (default: 72)
 --vp1_min_aln_len   {ARG_INT}       Min VP1 alignment length in nt (default: 300)
---vp1_ambiguous_margin {ARG_DECIMAL} Flag the call as ambiguous if the runner-up genotype is within
-                                    this %% identity (default: 1.0)
+--vp1_ambiguous_margin {ARG_DECIMAL}
+                                    Flag the call as ambiguous if the runner-up genotype is within this
+                                    % identity (default: 1.0)
 
 {header("Sequencing mode")}
 --mode              {ARG_TEXT}      How the library was made. Sets the library-specific processing:
-                                      amplicon    -> trim the forward primer, NO duplicate removal
-                                      capture     -> remove PCR duplicates, no primer trimming
-                                      metagenomic -> neither (default)
+                                      amplicon    -> trim the forward primer
+                                      capture     -> reserved; currently same as metagenomic
+                                      metagenomic -> no primer trimming (default)
 --primer_fwd        {ARG_TEXT}      Forward primer for --mode amplicon, IUPAC allowed
                                     (default: TCCTCCGGYCCCTGAATGYGGCTAA). The reverse primer anneals to
                                     the genomic poly(A) tail, so it needs no trimming.
---primer_max_mismatch {ARG_INT}     Mismatches tolerated when locating the primer (default: 4)
+--primer_max_mismatch {ARG_INT}     Mismatches tolerated when locating the primer (default: 2)
 --save_primertrim_bams {ARG_FLAG}   Keep the primer-trimmed BAMs in the output directory
 
 {header("Manual overrides (normally just use --mode)")}
 --trim_primers      {ARG_FLAG}      Force primer trimming regardless of mode
---remove_duplicates {ARG_FLAG}      Force PCR duplicate removal regardless of mode. NEVER for amplicon data,
-                                    where reads legitimately share start coordinates.
---save_dedup_bams   {ARG_FLAG}      Keep the deduplicated BAMs in the output directory
 
 {header("Per-position VCF (intra-host diversity)")}
 --call_variants     {ARG_FLAG}      Write one VCF per consensus genome to <output>/vcf/ (default: true).
                                     bcftools mpileup against the sample's own consensus, on the same
-                                    primer-trimmed / deduplicated alignment the consensus came from.
+                                    primer-trimmed alignment the consensus came from.
                                     Every position carries FORMAT/AD and FORMAT/DP, so intra-host
                                     (intra-genotype) allele frequencies can be computed downstream.
 --vcf_min_bq        {ARG_INT}       Minimum base quality (default: 20)
@@ -127,21 +125,38 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --ivar_var_t        {ARG_DECIMAL}   Minimum alternate allele frequency to report (default: 0.03)
 --ivar_var_m        {ARG_INT}       Minimum depth to call a variant (default: 10)
 
+{header("Cross-contamination check")}
+--check_contamination {ARG_FLAG}    All-vs-all comparison of the run's final consensuses, written to
+                                    <output>/<run_name>_contamination.tsv (default: true). Only positions
+                                    where both genomes call an unambiguous A/C/G/T are compared, so Ns
+                                    neither create nor hide identity. Pairs from the same sample are
+                                    ignored (those are real co-infections).
+--contam_min_comparable {ARG_INT}   Min unambiguous overlapping positions needed to judge a pair (default: 500)
+--contam_flag_identity {ARG_DECIMAL}
+                                    Flag pairs at or above this % identity (default: 99.9)
+
 {header("Reference selection thresholds")}
 --ref_min_depth     {ARG_INT}       The minimum depth an alignment against a reference must have to qualify for assembly (default: 3)
 --ref_min_cov       {ARG_INT}       The minimum coverage (in percent) an alignment against a reference to qualify for assembly (default: 30)
 
 {header("Assembly construction thresholds")}
---mpileup_max_depth     {ARG_INT}   The maximum BAM depth sampled by samtools mpileup during consensus generation (default: 100)
+--mpileup_max_depth       {ARG_INT} Max BAM depth sampled by mpileup for the INITIAL consensus (default: 100)
+--mpileup_max_depth_final {ARG_INT} Max BAM depth sampled by mpileup for the FINAL consensus (default: 500).
+                                  Set either to 0 for unlimited.
 
 --cons_init_min_depth   {ARG_INT}   The minimum depth of an alignment against the initial consensus to continue construction (default: 5)
 --cons_init_min_cov     {ARG_INT}   The minimum coverage of an alignment against the initial consensus to continue construction (default: 60)
 
---ivar_init_t       {ARG_DECIMAL}   The ambiguity threshold for iVar consensus when creating the initial consensus (default: 0.6)
+                                    NOTE on -t: it is the frequency a base must reach to be called on its
+                                    own. A HIGHER -t produces MORE IUPAC ambiguity codes, not fewer.
+
+--ivar_init_t       {ARG_DECIMAL}   Frequency threshold for the INITIAL consensus (default: 0.4 -- near-pure
+                                    majority calling; this sequence is only a mapping scaffold)
 --ivar_init_q       {ARG_INT}       The minimum mapping quality a read must have to be used during consensus construction (default: 20)
 --ivar_init_m       {ARG_INT}       The minimum depth at an alignment base; if below this, base is marked as "N" (default: 1)
 
---ivar_fin_t        {ARG_DECIMAL}   The ambiguity threshold for iVar consensus when creating the final consensus (default: 0.4)
+--ivar_fin_t        {ARG_DECIMAL}   Frequency threshold for the FINAL consensus (default: 0.6 -- genuinely
+                                    mixed sites are written as IUPAC codes, recording intra-sample diversity)
 --ivar_fin_q        {ARG_INT}       The minimum mapping quality a read must have to be used during consensus construction (default: 20)
 --ivar_fin_m        {ARG_INT}       The minimum depth at an alignment base; if below this, base is marked as "N" (default: 5)
 
@@ -167,11 +182,17 @@ VALUE_OPTS = {
     "output", "run_name", "refs", "min_trimmed_reads",
     "adapter_fasta", "adapter_trimming", "trim_len",
     "kraken2_db", "sample",
-    "ref_min_depth", "ref_min_cov", "mpileup_max_depth",
+    "mode", "primer_fwd", "primer_max_mismatch",
+    "vcf_min_bq", "vcf_min_mq", "vcf_max_depth",
+    "ivar_var_q", "ivar_var_t", "ivar_var_m",
+    "contam_min_comparable", "contam_flag_identity",
+    "ref_min_depth", "ref_min_cov",
+    "mpileup_max_depth", "mpileup_max_depth_final",
     "cons_init_min_depth", "cons_init_min_cov",
     "ivar_init_t", "ivar_init_q", "ivar_init_m",
     "ivar_fin_t", "ivar_fin_q", "ivar_fin_m",
     "vp1_db", "vp1_min_identity", "vp1_min_aln_len", "vp1_ambiguous_margin",
+    "fastp_container",
     "max_cpus", "max_memory", "max_time",
 }
 

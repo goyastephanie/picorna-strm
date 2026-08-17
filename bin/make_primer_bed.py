@@ -43,13 +43,15 @@ def read_fasta(path):
     return recs
 
 
-def find_matches(seq, primer, max_mm):
+def find_matches(seq, primer, max_mm, min_overlap=10):
     """Return list of (start0, end, n_mismatch) for primer matches in seq."""
     seq = seq.upper()
     primer = primer.upper()
     plen = len(primer)
     allowed = [IUPAC.get(b, "ACGT") for b in primer]
     hits = []
+
+    # (a) the primer fits entirely inside the sequence
     for i in range(0, len(seq) - plen + 1):
         mm = 0
         for j in range(plen):
@@ -59,6 +61,25 @@ def find_matches(seq, primer, max_mm):
                     break
         if mm <= max_mm:
             hits.append((i, i + plen, mm))
+
+    # (b) the primer OVERHANGS an end of the sequence, i.e. only part of it is
+    #     present. This is the normal situation when the reference is the
+    #     sample's own consensus: quality trimming leaves a variable amount of
+    #     primer on each read, so the consensus can begin partway through it.
+    #     Without this, a truncated primer is invisible and never trimmed.
+    for d in range(1, plen - min_overlap + 1):
+        # 5' overhang: primer[d:] aligned to seq[0:]
+        ov = plen - d
+        mm = sum(1 for j in range(ov) if seq[j] not in allowed[d + j])
+        if mm <= max(1, int(round(max_mm * ov / plen))):
+            hits.append((0, ov, mm))
+        # 3' overhang: primer[:ov] aligned to the last ov bases
+        start = len(seq) - ov
+        if start > 0:
+            mm = sum(1 for j in range(ov) if seq[start + j] not in allowed[j])
+            if mm <= max(1, int(round(max_mm * ov / plen))):
+                hits.append((start, len(seq), mm))
+
     return hits
 
 
@@ -71,6 +92,9 @@ def main():
     ap.add_argument("--name", default="primer_fwd", help="primer name for the BED")
     ap.add_argument("--max_mismatch", type=int, default=4,
                     help="mismatches tolerated when locating the primer (default: 4)")
+    ap.add_argument("--min_overlap", type=int, default=10,
+                    help="minimum primer bases that must be present when the primer "
+                         "overhangs an end of the reference (default: 10)")
     ap.add_argument("--all_matches", action="store_true",
                     help="report every match instead of only the best one per strand")
     args = ap.parse_args()
@@ -78,7 +102,7 @@ def main():
     rows = []
     for name, seq in read_fasta(args.ref):
         for strand, s in (("+", seq), ("-", revcomp(seq))):
-            hits = find_matches(s, args.primer, args.max_mismatch)
+            hits = find_matches(s, args.primer, args.max_mismatch, args.min_overlap)
             if not hits:
                 continue
             if not args.all_matches:
