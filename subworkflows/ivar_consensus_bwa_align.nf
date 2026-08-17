@@ -10,7 +10,6 @@ workflow IVAR_CONSENSUS_BWA_ALIGN {
     ch_bam                // channel: [ val(meta), val(ref_info), path(bam), path(bai) ]                             
     ch_ref                // channel: [ val(meta), val(ref_info), path(ref) ]                             
     ch_reads              // channel: [ val(meta), val(ref_info), path(reads) ]
-    use_mem2              // val:     use_mem2
 
     main:
 
@@ -36,8 +35,7 @@ workflow IVAR_CONSENSUS_BWA_ALIGN {
     
     BWA_MEM_ALIGN(
         ch_second_pass_input.reads,
-        ch_second_pass_input.consensus,
-        use_mem2
+        ch_second_pass_input.consensus
     )
     
     emit:

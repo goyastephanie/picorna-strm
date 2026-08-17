@@ -58,8 +58,8 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --run_name          {ARG_TEXT}      Name of the analysis run (default: 'run')
 --refs              {ARG_PATH}      Reference FASTA file (default: assets/PICORNA_DB_v20280814_tag.fasta)
 --print_log         {ARG_FLAG}      Print pipeline output to screen
---use_mem2          {ARG_FLAG}      Use BWA-MEM2 instead of the default BWA
---min_trimmed_reads {ARG_INT}       Exclude samples if they have a read count below this number after trimming.
+--min_trimmed_reads {ARG_INT}       Drop a sample whose read count after fastp is below this (default: 1000).
+                                    A dropped sample is named in a WARN line and produces no assembly.
 
 {header("Optional heavy outputs (off by default)")}
 --save_sra_fastq    {ARG_FLAG}      Write the reads of each assembly as FASTQ into final_files/SRA/, ready
@@ -70,18 +70,30 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
                                     final_files/align_to_db/. Nothing downstream reads it; the coverage
                                     table *_covstats.tsv, which documents reference selection, is always
                                     published either way.
---del_nondb_bams    {ARG_FLAG}      Do not publish the BAMs of the two assembly passes
+--del_nondb_bams    {ARG_FLAG}      Skip publishing the BAMs of the two assembly passes, i.e. the contents
+                                    of final_files/align_to_selected_ref/ and align_to_consensus/. It
+                                    deletes nothing: the BAMs still exist under work/ and every other file
+                                    in those directories (the reference used, the first consensus) is
+                                    still published. Name inherited from upstream revica-strm.
 
 {header("Runtime")}
--profile            {ARG_TEXT}      Use with "docker" to run the pipeline with docker (avoids having to download all software used)
--c                  {ARG_PATH}      Path to nextflow .config file
+-profile            {ARG_TEXT}      Container engine. 'docker' is the only profile defined, and it is what
+                                    you want: every tool runs from a pinned image, nothing has to be
+                                    installed. Without it, bwa/samtools/ivar/bcftools/blast/seqtk/fastp must
+                                    all be on your PATH.
+-c                  {ARG_PATH}      Path to an extra nextflow .config file
+-resume             {ARG_FLAG}      Reuse the completed tasks of the previous run in this directory
+-w                  {ARG_PATH}      Work directory (default: ./work)
 
 {header("FASTP")}
 --adapter_trimming  {ARG_PATH}      Custom adapter FASTA file (default: assets/adapter.fasta)
 --save_trimmed_reads {ARG_FLAG}     Save the fastp-trimmed FASTQs
 --save_trimmed_fail {ARG_FLAG}      Save the reads fastp discarded
 --trim_len          {ARG_INT}       Filter out reads below this length after trimming (default: 50)
---save_merged       {ARG_FLAG}      Save merged reads from fastp
+--save_merged       {ARG_FLAG}      Paired-end only: also run fastp's read merging (-m) and save the
+                                    overlapping pairs collapsed into single reads. Not the same as
+                                    --save_trimmed_reads, which saves R1/R2 separately, unmerged. The
+                                    merged file is an extra output; the pipeline still assembles from R1/R2.
 
 {header("Kraken2")}
 --run_kraken2       {ARG_FLAG}      Remove host reads with Kraken2 before assembly (needs --kraken2_db)
@@ -91,21 +103,41 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --save_kraken2_unclassified_reads {ARG_FLAG}    Save the non-host FASTQs
 
 {header("Subsampling")}
---sample            {ARG_INT}       Use SEQTK to subsample reads to the number specified (default: 6000000). Set to "false" to disable
+--sample            {ARG_INT}       Subsample to this many reads with seqtk, after fastp (default: 6000000).
+                                    Set to "false" to disable. Reproducible: the seed is fixed.
+--amplicon_max_sample {ARG_INT}     In --mode amplicon, cap --sample at this value (default: 3000000). A
+                                    7 kb single amplicon reaches ~64,000x with 3M reads of 150 bp and the
+                                    consensus pileup is capped at 500, so more reads are aligned three
+                                    times per sample and then discarded. An explicit --sample below the
+                                    cap, or --sample false, always wins. Set to 0 to remove the cap.
 --save_sample_reads {ARG_FLAG}      Save the subsampled reads in the output directory.
 
 {header("Rhinovirus genotyping (VP1)")}
 --rhinovirus        {ARG_FLAG}      Type each final consensus by VP1 (authoritative RV genotype call).
                                     Writes <run_name>_vp1_genotypes.tsv and per-consensus TSVs.
 --vp1_db            {ARG_PATH}      Nucleotide VP1 database (default: db/VP1_NT_from_picorna.fasta)
---vp1_min_identity  {ARG_INT}       Min % identity for a VP1 hit (default: 72). Computed only over
-                                    positions where both sequences call an unambiguous A/C/G/T, so Ns
-                                    in the consensus neither create nor destroy identity.
+--vp1_min_identity  {ARG_INT}       REPORTING floor (default: 72). Below this the hit is treated as noise
+                                    and nothing is reported. Deliberately permissive so a divergent or
+                                    unrepresented type is still surfaced as its nearest relative.
+                                    Identity is computed only over positions where both sequences call an
+                                    unambiguous A/C/G/T, so Ns neither create nor destroy it.
 --vp1_min_aln_len   {ARG_INT}       Min number of those unambiguous comparable positions (default: 300),
                                     summed over all non-overlapping blast HSPs.
+--vp1_type_identity {ARG_DECIMAL}   TYPE ASSIGNMENT threshold for RV-A and RV-C (default: 87.0)
+--vp1_type_identity_b {ARG_DECIMAL} Same, for RV-B (default: 88.0)
+                                    McIntyre et al. 2013 (J Gen Virol 94:1791-1806) place the inter-type
+                                    boundary at 13% VP1 nucleotide divergence for RV-A and RV-C and 12%
+                                    for RV-B. A consensus that clears the reporting floor but not this
+                                    threshold is reported as vp1_genotype "unassigned"; its nearest
+                                    relative and identity stay in vp1_subject / vp1_identity and are named
+                                    in vp1_note. That is the right answer both for a novel type and for
+                                    one simply missing from the database.
 --vp1_ambiguous_margin {ARG_DECIMAL}
-                                    Flag the call as ambiguous if the runner-up genotype is within this
-                                    % identity (default: 1.0)
+                                    Flag a call as ambiguous when the best hit of a DIFFERENT type is
+                                    this close in identity (default: 1.0, i.e. one percentage point).
+                                    Example: best hit RV-A54 at 95.0% and best hit of another type
+                                    RV-A98 at 94.5% -> difference 0.5 < 1.0 -> vp1_note reads
+                                    "ambiguous:RV-A98(94.50%)" and the call deserves manual review.
 
 {header("Sequencing mode")}
 --mode              {ARG_TEXT}      How the library was made. Sets the library-specific processing:
@@ -129,7 +161,12 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
                                     (intra-genotype) allele frequencies can be computed downstream.
 --vcf_min_bq        {ARG_INT}       Minimum base quality (default: 20)
 --vcf_min_mq        {ARG_INT}       Minimum mapping quality (default: 20)
---vcf_max_depth     {ARG_INT}       Max pileup depth (default: 1000000)
+--vcf_max_depth     {ARG_INT}       Cap on reads counted per position (default: 1000000). A guard against
+                                    pathological depth, not a filter: bcftools allocates according to the
+                                    reads actually present, so a high value costs nothing. At 150 bp on a
+                                    7 kb genome, --sample 6000000 tops out near 128,000x, so this never
+                                    truncates a normal run. If a site did exceed it, DP would become the
+                                    cap while the allele frequency stayed unaffected.
 
 {header("Called-variant table (optional)")}
 --ivar_variants     {ARG_FLAG}      Also run 'ivar variants' for a filtered variant table with allele
@@ -186,16 +223,18 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 
 {header("Advanced")}
 --skip_consensus    {ARG_FLAG}      Stop after read QC (no assembly)
---fastp_container   {ARG_TEXT}      Override the fastp container image
+--fastp_container   {ARG_TEXT}      Docker image used for the fastp step only. The default biocontainer is
+                                    linux/amd64 only; on Apple Silicon it runs emulated, where fastp's SIMD
+                                    gzip reader can fail on perfectly valid files with
+                                    "igzip: Error invalid gzip header". If that happens, enable Rosetta in
+                                    Docker Desktop or point this at a native multi-arch image, e.g.
+                                    'community.wave.seqera.io/library/fastp:1.1.0--08aa7c5662a30d57'
 
 {header("Compute resources")}
 --max_cpus          {ARG_INT}       Maximum CPUs to use (default: 32)
 --max_memory        {ARG_TEXT}      Maximum memory to use (default: '64.GB')
 --max_time          {ARG_TEXT}      Maximum run time (default: '32.h')
 
-{header("Misc")}
---branch            {ARG_TEXT}      The branch of the pipeline to use. Default (and stable): main. Unstable branch: staging.
---local             {ARG_FLAG}      Run the local copy of the pipeline (resolved next to this script). Recommended for this fork.
 """
 
 
@@ -205,7 +244,7 @@ VALUE_OPTS = {
     "output", "run_name", "refs", "min_trimmed_reads",
     "adapter_fasta", "adapter_trimming", "trim_len",
     "kraken2_db", "sample",
-    "mode", "primer_fwd", "primer_max_mismatch",
+    "mode", "primer_fwd", "primer_max_mismatch", "amplicon_max_sample",
     "vcf_min_bq", "vcf_min_mq", "vcf_max_depth",
     "ivar_var_q", "ivar_var_t", "ivar_var_m",
     "contam_min_comparable", "contam_flag_identity", "contam_same_genome_identity",
@@ -215,6 +254,7 @@ VALUE_OPTS = {
     "ivar_init_t", "ivar_init_q", "ivar_init_m",
     "ivar_fin_t", "ivar_fin_q", "ivar_fin_m",
     "vp1_db", "vp1_min_identity", "vp1_min_aln_len", "vp1_ambiguous_margin",
+    "vp1_type_identity", "vp1_type_identity_b",
     "fastp_container",
     "max_cpus", "max_memory", "max_time",
 }
@@ -396,12 +436,10 @@ if __name__ == "__main__":
         "-profile", required=False, default=None, help=argparse.SUPPRESS
     )
     _ = parser.add_argument("--print_log", action="store_true", help=argparse.SUPPRESS)
-    _ = parser.add_argument(
-        "--branch", default="main", choices=["main", "staging"], help=argparse.SUPPRESS
-    )
     _ = parser.add_argument("-h", "--help", action="store_true", help=argparse.SUPPRESS)
-    # This fork always runs from the local checkout (there is no public
-    # nextflow-pullable repo for it); --local is kept for compatibility.
+    # Accepted and ignored: this fork always runs from the local checkout, so the
+    # upstream "pull from GitHub" path does not exist. Kept so old command lines
+    # that still pass --local do not fail.
     _ = parser.add_argument("--local", action="store_true", default=True, help=argparse.SUPPRESS)
 
     try:

@@ -7,7 +7,6 @@ process BWA_MEM_ALIGN_DB {
     input:
     tuple val(meta), path(fastq)
     tuple path(db), path(db_indexed)
-    val use_mem2
 
     output:
     tuple val(meta), path("*covstats.tsv"), emit: covstats
@@ -20,7 +19,6 @@ process BWA_MEM_ALIGN_DB {
     def args = task.ext.args ?: ''
     def prefix = task.ext.prefix ?: "${meta.id}"
     def input = meta.single_end ? "$fastq" : "${fastq[0]} ${fastq[1]}"
-    def bwa = use_mem2 ? "bwa-mem2" : "bwa"
 
     """
     # this flag combines 0x4 and 0x800, which means:
@@ -33,7 +31,7 @@ process BWA_MEM_ALIGN_DB {
     ## only to read it straight back costs a full zlib round trip plus two
     ## passes over hundreds of MB of the shared filesystem. `view -u` keeps the
     ## stream uncompressed on the way to sort. The sorted BAM is identical.
-    $bwa mem \
+    bwa mem \
         $db \
         $input \
         -t ${task.cpus} \

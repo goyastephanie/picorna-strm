@@ -41,9 +41,19 @@ if (do_primer_trim && !params.primer_fwd) {
     exit 1, "--mode amplicon (or --trim_primers) requires a forward primer (--primer_fwd)!"
 }
 
+// --mode amplicon caps the subsample: an explicit --sample below the cap, or
+// --sample false, always wins. Computed here (script scope) where params already
+// hold their final, command-line-resolved values.
+def sample_size = params.sample
+if (params.mode == 'amplicon' && params.sample && params.amplicon_max_sample
+        && params.sample > params.amplicon_max_sample) {
+    sample_size = params.amplicon_max_sample
+}
+
 log.info ""
 log.info "  sequencing mode : ${params.mode}"
 log.info "  primer trimming : ${do_primer_trim ? "yes (${params.primer_fwd})" : 'no'}"
+log.info "  subsampling     : ${sample_size ? "${sample_size} reads" + (sample_size != params.sample ? " (capped by --amplicon_max_sample)" : '') : 'off'}"
 log.info "  per-position VCF: ${params.call_variants ? 'yes' : 'no'}"
 log.info "  iVar variants   : ${params.ivar_variants ? 'yes' : 'no'}"
 log.info ""
@@ -200,10 +210,10 @@ workflow {
                 }
         }
 
-    if (params.sample) {
+    if (sample_size) {
         SEQTK_SAMPLE (
                 ch_sample_input,
-                params.sample
+                sample_size
                 )
             ch_ref_prep_input = SEQTK_SAMPLE.out.reads
     } else {
@@ -213,14 +223,12 @@ workflow {
     if (!params.skip_consensus) { 
         REFERENCE_PREP (
                 ch_ref_prep_input,
-                file(params.refs),
-                params.use_mem2
+                file(params.refs)
                 ) 
 
         CONSENSUS_ASSEMBLY (
                 REFERENCE_PREP.out.reads,
                 REFERENCE_PREP.out.ref,
-                params.use_mem2,
                 do_primer_trim,
                 params.primer_fwd
                 )

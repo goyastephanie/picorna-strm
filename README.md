@@ -317,7 +317,7 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 | Parameter | Default | Notes |
 |---|---|---|
 | `--refs` | bundled PICORNA db | genome database for reference detection |
-| `--sample` | `6000000` | subsampling; use `false` to disable (recommended for unbalanced co-infections) |
+| `--sample` | `6000000` | subsampling after fastp, fixed seed; use `false` to disable (recommended for unbalanced co-infections). Capped at `--amplicon_max_sample` in `--mode amplicon` |
 | `--ref_min_cov` / `--ref_min_depth` | `30` / `3` | reference selection thresholds. For high-coverage capture data, `--ref_min_cov 60` suppresses spurious relatives of genotypes missing from the database |
 | `--ivar_fin_m` | `5` | minimum depth for a final consensus base. At ~10x mean depth, a value of 10 masks ~47% of a minor co-infecting genome as N versus ~8% at 5 |
 | `--ivar_init_t` / `--ivar_fin_t` | `0.4` / `0.6` | frequency a base must reach to be called on its own. A **higher** value produces **more** IUPAC ambiguity codes. Low for the scaffold consensus (it only needs to remove the divergence from a distant reference), higher for the final one (a 55/45 site is written as an ambiguity code, recording intra-sample diversity) |
@@ -334,12 +334,16 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 | `--call_variants` | on | per-position VCF (`vcf/`) against the final consensus |
 | `--rhinovirus` | off | enable VP1 genotyping |
 | `--run_kraken2` + `--kraken2_db` | off | remove host reads before assembly (see `docs/making_kraken2_human_db.md`) |
-| `--vp1_min_identity` / `--vp1_min_aln_len` | `72` / `300` | minimum blastn identity (%) and alignment length (nt) for a VP1 hit |
+| `--vp1_min_identity` / `--vp1_min_aln_len` | `72` / `300` | **reporting** floor: minimum identity (%) and unambiguous comparable positions for a VP1 hit to be shown at all |
+| `--vp1_type_identity` / `--vp1_type_identity_b` | `87.0` / `88.0` | **type assignment** threshold (RV-A and RV-C / RV-B). Below it the call is `unassigned` with the nearest relative named |
+| `--amplicon_max_sample` | `3000000` | in `--mode amplicon`, cap on `--sample` |
 | `--fastp_container` | biocontainers 0.23.2 | override if the default image misbehaves on your platform |
 
 ### Interpreting VP1 calls
 
-The winner is the database entry with the highest **summed bitscore** across its non-overlapping HSPs, not simply the highest identity. The 72% identity floor is a noise filter, **not a taxonomic threshold**: a genotype absent from the database is reported as its nearest relative rather than as a novel type. Treat identities below ~90% as candidate unrepresented types. When the runner-up genotype falls within `--vp1_ambiguous_margin` (1% by default), the call is flagged `ambiguous:<genotype>(<identity>%)` in the `vp1_note` column.
+Two thresholds do two different jobs. `--vp1_min_identity` (72%) is a **reporting** floor: below it the hit is noise and nothing is shown. `--vp1_type_identity` (87%, and `--vp1_type_identity_b` 88% for RV-B) is the **type assignment** threshold: [McIntyre et al. 2013](https://www.microbiologyresearch.org/content/journal/jgv/10.1099/vir.0.053686-0) place the inter-type/intra-type boundary at 13% VP1 nucleotide divergence for RV-A and RV-C and 12% for RV-B. A consensus that clears the reporting floor but not the assignment threshold is reported as `vp1_genotype = unassigned`, with its nearest relative and identity still in `vp1_subject` and `vp1_identity` and named in `vp1_note` — the right answer both for a genuinely novel type and for one simply missing from the database.
+
+Among the entries clearing the reporting floor, the winner is the one with the highest **summed bitscore** across its non-overlapping HSPs, not simply the highest identity. The 72% identity floor is a noise filter, **not a taxonomic threshold**: a genotype absent from the database is reported as its nearest relative rather than as a novel type. Treat identities below ~90% as candidate unrepresented types. When the runner-up genotype falls within `--vp1_ambiguous_margin` (1% by default), the call is flagged `ambiguous:<genotype>(<identity>%)` in the `vp1_note` column.
 
 `vp1_identity` and `vp1_aln_len` do not come straight from blast. blastn is a **local** aligner: it returns HSPs, and a run of Ns long enough to trip its X-drop cuts the alignment in two, after which blast re-seeds on the other side. Measured on this database with a real 849 nt VP1 and N runs spaced every 200 bases, runs of up to 25 Ns are absorbed into a single full-length HSP, while runs of 30 or more break it into ~200 nt fragments. Reporting only the best fragment would then fail the 300 nt floor for a consensus that is only 10% N. So all non-overlapping HSPs of an entry are summed, and identity is computed **only over positions where both sequences call an unambiguous A/C/G/T** — the same treatment used by the cross-contamination check, and for the same reason. `vp1_aln_len` is therefore the number of comparable unambiguous positions, not blast's raw alignment length.
 

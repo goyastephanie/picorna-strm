@@ -43,6 +43,22 @@
 // exactly those positions. Both are stricter definitions than before, so the
 // 72% / 300 nt defaults remain meaningful.
 //
+// -------------------------------------------------------------------------
+// Two thresholds, doing two different jobs
+// -------------------------------------------------------------------------
+//   --vp1_min_identity (72%) is a REPORTING floor: below it the hit is noise.
+//     It is deliberately permissive so that a divergent or unrepresented type
+//     is still surfaced as its nearest relative instead of vanishing.
+//   --vp1_type_identity (87%, and 88% for RV-B) is the TYPE ASSIGNMENT
+//     threshold from McIntyre et al. 2013 (J Gen Virol 94:1791-1806), which
+//     places the inter-type/intra-type boundary at 13% VP1 nucleotide
+//     divergence for RV-A and RV-C and 12% for RV-B. A consensus that clears
+//     the reporting floor but not this one is reported as vp1_genotype
+//     "unassigned", with its nearest relative and identity still in
+//     vp1_subject / vp1_identity and named in vp1_note. That is the honest
+//     answer both for a genuinely novel type and for one missing from the
+//     database.
+//
 process VP1_TYPE {
     tag "${meta.id}_${ref_info.acc}_${ref_info.tag}"
     label 'process_single'
@@ -65,6 +81,8 @@ process VP1_TYPE {
     def min_id = params.vp1_min_identity
     def min_aln = params.vp1_min_aln_len
     def margin = params.vp1_ambiguous_margin
+    def type_id = params.vp1_type_identity
+    def type_id_b = params.vp1_type_identity_b
     """
     # Build the BLAST index inside the task so a stale/absent index in the
     # repository can never be used by accident.
@@ -90,6 +108,8 @@ process VP1_TYPE {
         -v minid="${min_id}" \\
         -v minaln="${min_aln}" \\
         -v margin="${margin}" \\
+        -v typeid="${type_id}" \\
+        -v typeidb="${type_id_b}" \\
         -v sample="${meta.id}" \\
         -v reftag="${ref_info.tag}" \\
         -v refacc="${ref_info.acc}" '
@@ -142,6 +162,13 @@ process VP1_TYPE {
         nf = split(best, ba, "_"); gt = ba[nf]
         pid = 100.0 * ident[best] / comp[best]
 
+        # Type assignment. McIntyre et al. 2013 place the inter-type boundary at
+        # 13% VP1 nucleotide divergence for RV-A and RV-C and 12% for RV-B. Below
+        # it the consensus has not earned a type: it is reported as "unassigned"
+        # with its nearest relative named, which is also the correct answer for a
+        # type that is simply absent from the database.
+        thr = (substr(gt, 1, 4) == "RV-B") ? typeidb : typeid
+
         # A close runner-up of a DIFFERENT genotype makes the call ambiguous.
         note = "ok"
         sec = ""; secbits = -1
@@ -160,6 +187,11 @@ process VP1_TYPE {
                 nf3 = split(sec, sa2, "_")
                 note = sprintf("ambiguous:%s(%.2f%%)", sa2[nf3], sp)
             }
+        }
+
+        if (pid < thr) {
+            note = sprintf("unassigned_below_type_threshold(%.1f%%):nearest=%s", thr, gt)
+            gt = "unassigned"
         }
 
         printf "%s\\t%s\\t%s\\t%s\\t%.2f\\t%d\\t%.1f\\t%s\\t%s\\n", \\

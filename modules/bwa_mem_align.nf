@@ -6,7 +6,6 @@ process BWA_MEM_ALIGN {
     input:
     tuple val(meta), path(fastq)
     tuple val(meta2), val(ref_info), path(ref)
-    val use_mem2
 
     output:
     tuple val(meta), val(ref_info), path("*.sorted.bam"), path("*.sorted.bam.bai"), emit: bam
@@ -30,7 +29,6 @@ process BWA_MEM_ALIGN {
 
     def min_coverage = task.ext.min_coverage
     def min_depth = task.ext.min_depth
-    def bwa = use_mem2 ? "bwa-mem2" : "bwa"
 
     // this currently only supports ref paths to a fasta file, not a directory or subdirectory
     """
@@ -40,13 +38,13 @@ process BWA_MEM_ALIGN {
     # reads with either of these flags will be removed.
     FLAG=2052
 
-    $bwa index $ref
+    bwa index $ref
 
     ## align and sort in a single pipe (see bwa_mem_align_db.nf): the previous
     ## version wrote an unsorted compressed BAM to disk, read it back, sorted it
     ## into a second BAM and later sorted THAT again into a third. The stream is
     ## kept uncompressed with `view -u` and sorted once; the result is identical.
-    $bwa mem \
+    bwa mem \
         $ref \
         $input \
         -t $task.cpus \

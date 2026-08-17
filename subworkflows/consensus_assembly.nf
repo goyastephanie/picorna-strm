@@ -27,7 +27,6 @@ workflow CONSENSUS_ASSEMBLY {
     take:
     ch_reads         // channel: [ val(meta), path(reads) ]
     ch_ref           // channel: [ val(meta), val(ref_info), path(ref) ]
-    use_mem2         // val: boolean
     do_primer_trim   // val: boolean
     primer_fwd       // val: forward primer sequence
 
@@ -35,8 +34,7 @@ workflow CONSENSUS_ASSEMBLY {
 
     BWA_MEM_ALIGN_QUERY(
         ch_reads,
-        ch_ref,
-        use_mem2
+        ch_ref
     )
 
     //
@@ -93,8 +91,7 @@ workflow CONSENSUS_ASSEMBLY {
     IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY(
         ch_pass1.bam,
         ch_pass1.ref,
-        BWA_MEM_ALIGN_QUERY.out.reads,
-        use_mem2
+        BWA_MEM_ALIGN_QUERY.out.reads
     )
 
     //

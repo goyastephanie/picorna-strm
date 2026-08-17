@@ -16,19 +16,16 @@ workflow REFERENCE_PREP {
     take:                                                                          
     ch_reads    // channel: [ val(meta), path(reads) ]                  
     db          // path: db
-    use_mem2    // val: use_mem2
                                                                                    
     main:
                                                                                    
     BWA_MEM_INDEX (
         db,
-        use_mem2
     )
 
     BWA_MEM_ALIGN_DB (
         ch_reads,
         BWA_MEM_INDEX.out.indexed_fasta,
-        use_mem2
     )
                                                                                    
     SELECT_REFERENCE (                                                             
