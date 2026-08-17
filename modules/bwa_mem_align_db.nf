@@ -29,15 +29,17 @@ process BWA_MEM_ALIGN_DB {
     # reads with either of these flags will be removed.
     FLAG=2052
 
-    ## run bwa-mem2 
+    ## align and sort in a single pipe: writing an intermediate compressed BAM
+    ## only to read it straight back costs a full zlib round trip plus two
+    ## passes over hundreds of MB of the shared filesystem. `view -u` keeps the
+    ## stream uncompressed on the way to sort. The sorted BAM is identical.
     $bwa mem \
         $db \
         $input \
         -t ${task.cpus} \
-        | samtools view -bS -F \$FLAG -@ ${task.cpus} > ${prefix}
+        | samtools view -u -F \$FLAG -@ ${task.cpus} \
+        | samtools sort -@ ${task.cpus} -m 4G -o ${prefix}.bam
 
-    samtools sort -@ ${task.cpus} ${prefix} -m 4G -o ${prefix}.bam
-    rm ${prefix}
     samtools coverage -d 0 ${prefix}.bam > ${prefix}_depth.tsv
 
     ## replace abbreviated ref names in pandepth with originals from db

@@ -42,14 +42,17 @@ process BWA_MEM_ALIGN {
 
     $bwa index $ref
 
-    ## run bwa
+    ## align and sort in a single pipe (see bwa_mem_align_db.nf): the previous
+    ## version wrote an unsorted compressed BAM to disk, read it back, sorted it
+    ## into a second BAM and later sorted THAT again into a third. The stream is
+    ## kept uncompressed with `view -u` and sorted once; the result is identical.
     $bwa mem \
         $ref \
         $input \
         -t $task.cpus \
-        | samtools view -bS -F \$FLAG -@ $task.cpus > ${prefix}
+        | samtools view -u -F \$FLAG -@ $task.cpus \
+        | samtools sort -@ ${task.cpus} -m 4G -o ${prefix}.bam
 
-    samtools sort ${prefix} -@ ${task.cpus} -m 4G -o ${prefix}.bam
     samtools coverage -d 0 ${prefix}.bam > ${prefix}_depth.tsv
 
     mapped=\$(samtools view -c -F \$FLAG -@ $task.cpus ${prefix}.bam)
@@ -66,11 +69,13 @@ process BWA_MEM_ALIGN {
     # Check if thresholds are met
     if [ "\$(echo "\$coverage >= $min_coverage" | bc)" -eq 1 ] && [ "\$(echo "\$mean_depth >= $min_depth" | bc)" -eq 1 ]; then
         echo "alignment thresholds met!"
-        samtools sort -@ ${task.cpus} -m 4G -o "${prefix}.sorted.bam" "${prefix}.bam"
+        # already coordinate-sorted by the pipe above -- re-sorting it was a
+        # no-op that cost a full pass and a third copy of the BAM
+        mv "${prefix}.bam" "${prefix}.sorted.bam"
         samtools index -@ ${task.cpus} "${prefix}.sorted.bam"
     else
         echo "alignment failed to meet thresholds! Depth: \$mean_depth, Coverage: \$coverage"
-        rm *.bam
+        rm -f *.bam
         touch FAILED.sorted.bam FAILED.sorted.bam.bai
         mv ${prefix}_covstats.tsv ${prefix}_failed_assembly.tsv
     fi
