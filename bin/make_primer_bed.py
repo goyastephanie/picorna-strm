@@ -90,7 +90,7 @@ def main():
     ap.add_argument("--primer", required=True, help="primer sequence (IUPAC allowed)")
     ap.add_argument("--out", required=True, help="output BED")
     ap.add_argument("--name", default="primer_fwd", help="primer name for the BED")
-    ap.add_argument("--max_mismatch", type=int, default=4,
+    ap.add_argument("--max_mismatch", type=int, default=2,
                     help="mismatches tolerated when locating the primer (default: 4)")
     ap.add_argument("--min_overlap", type=int, default=10,
                     help="minimum primer bases that must be present when the primer "

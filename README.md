@@ -2,7 +2,7 @@
 
 **Reference-based assembly and VP1 genotyping of picornavirus genomes from short-read metagenomic, capture and amplicon sequencing.**
 
-`picorna-strm` is **based on [revica-strm](https://github.com/greninger-lab/revica-strm)** (Greninger Lab, UW Virology), adapted and re-tuned for picornaviruses — small RNA virus genomes with extraordinary genetic diversity. It keeps revica-strm's two-pass consensus strategy and adds a curated picornavirus reference database, sequencing-mode presets (amplicon / capture / metagenomic), amplicon primer trimming, VP1 genotyping, per-position variant calling, a cross-contamination check, a software version registry, and a number of correctness fixes.
+`picorna-strm` is **based on [revica-strm](https://github.com/greninger-lab/revica-strm)** (Greninger Lab, UW Virology), adapted and re-tuned for picornaviruses — small RNA virus genomes with extraordinary genetic diversity. It keeps revica-strm's two-pass consensus strategy and adds a curated picornavirus reference database, sequencing-mode presets (amplicon / capture / metagenomic), amplicon primer trimming, VP1 genotyping, per-position variant calling, a consensus-vs-consensus contamination and duplicate-assembly check, a software version registry, and a number of correctness fixes.
 
 This is an independent fork: the pipeline is expected to keep diverging from upstream as it is further adapted to picornavirus biology.
 
@@ -20,7 +20,7 @@ For each sample, the pipeline runs:
 6. **Final consensus** — reads are re-mapped against that first consensus (now a reference of the same organism that was actually sequenced), the same mode-specific correction is applied again, and `iVar` builds the delivered assembly.
 7. **Per-position VCF** — `bcftools mpileup` on that final alignment against the sample's own consensus, recording intra-host diversity at every covered position.
 8. *(optional)* **VP1 genotyping** — each final consensus is typed by `blastn` against a nucleotide VP1 database.
-9. **Cross-contamination check** — all final consensuses of the run are compared against each other and near-identical pairs from different samples are flagged.
+9. **Consensus-vs-consensus check** — all final consensuses of the run are compared against each other: near-identical pairs from *different* samples are flagged as possible contamination, and near-identical pairs from the *same* sample as one virus assembled against two genotype references.
 
 VP1 typing is deliberately **decoupled** from reference selection: assembly still uses whole-genome mapping, and VP1 provides the authoritative genotype call on top of the finished consensus. Rhinovirus types are defined by VP1 divergence, so VP1 can resolve genotype pairs that whole-genome mapping cannot separate.
 
@@ -89,11 +89,11 @@ Primer trimming is applied to **each of the two alignment passes**, so the first
 
 ### Primer trimming
 
-Trimming uses `ivar trim` (iVar 1.4.4; 1.4.1-1.4.3 fixed several `trim` bugs, so older versions are not recommended). Trimming is by **coordinate**, not by matching the primer sequence in the read, so reads carrying only part of the primer are handled correctly. The coordinates are located per task with `bin/make_primer_bed.py`, which searches the reference of that particular alignment for `--primer_fwd` (IUPAC codes supported, up to `--primer_max_mismatch` mismatches, both strands). The search is repeated for each alignment pass because the two references are different sequences.
+Trimming uses `ivar trim` (iVar 1.4.4, pinned in the container). Trimming is by **coordinate**, not by matching the primer sequence in the read, so reads carrying only part of the primer are handled correctly. The coordinates are located per task with `bin/make_primer_bed.py`, which searches the reference of that particular alignment for `--primer_fwd` (IUPAC codes supported, up to `--primer_max_mismatch` mismatches, both strands). The search is repeated for each alignment pass because the two references are different sequences.
 
 Against the **database reference** the primer sits at its genomic coordinate — around position 300-450 of the 5'UTR, and different in every genotype — so it is found and trimmed. This is the primary trim, and doing it here matters: the first consensus becomes the reference for the second alignment and for the VCF, so primer-derived bases must not reach it. Left untrimmed they are clearly visible, including IUPAC ambiguity codes at the primer's degenerate positions (`TCCTCCGG**Y**CCCTGAATG**Y**GGCTAA`) — the sample has one base there, the primer pool has both.
 
-Against the **sample's own first consensus** the search acts as a safety net. If pass 1 worked, the consensus begins just downstream of the primer, the BED comes back empty and nothing is trimmed — correct, because reads still carrying the primer have those bases hanging off the 5' end and the aligner soft-clips them anyway. If any primer did survive into the first consensus it is caught here; since quality trimming leaves a variable amount of primer on each read, that residual is often *truncated*, so the search also matches a primer overhanging the end of the reference (`--min_overlap`, 10 bases by default). Both paths give a primer-free final consensus and VCF.
+Against the **sample's own first consensus** the search acts as a safety net. If pass 1 worked, the consensus begins just downstream of the primer, the BED comes back empty and nothing is trimmed — correct, because reads still carrying the primer have those bases hanging off the 5' end and the aligner soft-clips them anyway. If any primer did survive into the first consensus it is caught here; since quality trimming leaves a variable amount of primer on each read, that residual is often *truncated*, so the search also matches a primer overhanging the end of the reference (the `--min_overlap` option of `bin/make_primer_bed.py`, 10 bases; not exposed as a pipeline flag). Both paths give a primer-free final consensus and VCF.
 
 The default primer is the conserved 5'UTR forward primer `TCCTCCGGYCCCTGAATGYGGCTAA`. The reverse primer anneals to the genomic poly(A) tail, so there is nothing to trim at the 3' end. If the primer is not found in a given reference, an empty BED is written and the alignment passes through untrimmed rather than failing.
 
@@ -133,17 +133,28 @@ Inside `--output`:
 | `final_files/vp1_genotyping/` | per-consensus VP1 typing (with `--rhinovirus`) |
 | `primer_trim/` | primer BED located for each alignment (`--mode amplicon`) |
 | `final_files/SRA/` | mapped reads as FASTQ, ready for submission |
-| `<run_name>_summary.tsv` | reads, coverage, depth, consensus length, %N per assembly |
-| `<run_name>_contamination.tsv` | all-vs-all comparison of the run's consensuses; flags near-identical pairs |
+| `fastp/log/` | fastp JSON/HTML/log per sample |
+| `kraken2/` | Kraken2 reports, with `--run_kraken2` |
+| `seqtk_sample/` | subsampled FASTQs, with `--save_sample_reads` |
+| `<run_name>_summary.tsv` | 19 columns per assembly: raw/trimmed reads, mapped reads, coverage and mean depth for both alignment passes, consensus length, Ns and ambiguity codes |
+| `<run_name>_contamination.tsv` | all-vs-all comparison of the run's consensuses; flags possible contamination and duplicate assemblies |
 | `<run_name>_vp1_genotypes.tsv` | consolidated VP1 genotype calls |
 | `<run_name>_multiqc.html` | MultiQC report |
 | `fail/` | references and samples that did not pass thresholds |
 | `pipeline_info/software_versions.yml` | container image per process, Nextflow build, pipeline revision, database MD5s |
 | `params.json` | every parameter the run actually used |
 
-## Cross-contamination check
+## Consensus-vs-consensus check (contamination and duplicate assemblies)
 
-Index hopping, well-to-well carry-over and a mis-pipetted library all leave the same signature: two genomes from **different samples** that are identical over a long stretch. Two genuinely separate infections, even within one outbreak, almost always differ by at least a few bases. On by default (`--check_contamination`), every final consensus of the run is compared against every other one with `blastn`, and the result is written to `<output>/<run_name>_contamination.tsv`:
+On by default (`--check_contamination`), every final consensus of the run is compared against every other one with `blastn`, and the result is written to `<output>/<run_name>_contamination.tsv`. The same measurement answers two different questions, told apart only by whether the two consensuses came from the same sample.
+
+**Different samples, near-identical → `possible_contamination`.** Index hopping, well-to-well carry-over and a mis-pipetted library all leave two samples carrying the same genome. Two genuinely separate infections, even within one outbreak, almost always differ by at least a few bases. Threshold: `--contam_flag_identity`, 99.9% by default.
+
+**Same sample, near-identical → `possible_same_genome`.** Reference selection can pick two references of two different genotypes for a *single* virus: if a sample carries RV-A51, its reads may also cover an RV-A77 reference well enough to pass the selection thresholds, and the pipeline then builds two consensuses of the same genome. VP1 typing usually gives the game away by calling both A51, and the two consensuses differ only where each of them happened to leave Ns. This is neither a co-infection nor contamination — it is one virus masquerading as two, and one of the two assemblies should be discarded. Threshold: `--contam_same_genome_identity`, 99.0% by default.
+
+The two thresholds differ on purpose. Between samples there is a real "related but distinct" case worth protecting, so the bar is strict. Within one sample there is not: a true co-infection of two genotypes of the same species sits around 75–85% identity genome-wide, an enormous margin below 99%. (Two strains of the *same* genotype in one sample cannot produce two rows at all — the pipeline builds one assembly per tag; see Known limitations.)
+
+Only consensuses of the **same species** are compared (`--contam_intraspecies_only`, on by default). The species is the tag with its trailing serotype number removed, so RV-A51 and RV-A77 are compared and RV-A51 and RV-C11 are not. Between species the identity is far below either threshold, so the restriction costs nothing and keeps the table free of 5'UTR-only hits. Note that for enteroviruses this prefix is the serotype label rather than the ICTV species — E11, CV-B3 and EV-B69 are all *Enterovirus B* but carry different prefixes and so are not compared; set `--contam_intraspecies_only false` to compare everything.
 
 | Column | Meaning |
 |---|---|
@@ -151,19 +162,19 @@ Index hopping, well-to-well carry-over and a mis-pipetted library all leave the 
 | `comparable_sites` | positions where **both** genomes call an unambiguous A/C/G/T |
 | `differences` | mismatches among those positions |
 | `pct_identity` | `100 x (comparable_sites - differences) / comparable_sites` |
-| `flag` | `possible_contamination` at or above `--contam_flag_identity` (99.9% by default), otherwise `ok` |
+| `flag` | `possible_contamination`, `possible_same_genome`, or `ok` |
 
-Three details decide whether that number means anything, and each is a deliberate choice:
+Rows are sorted with contamination first, then duplicate assemblies, then everything else by descending identity.
 
-- **Different lengths.** Consensuses are rarely the same length, so only the aligned overlap is compared and its size is reported. 100% identity over 300 nt is meaningless; over 5000 nt it is not. Pairs with fewer than `--contam_min_comparable` (500) comparable positions are not judged at all rather than being reported with a misleading identity.
-- **Ns and IUPAC codes are excluded from both the numerator and the denominator.** A position that is N in one genome says nothing about whether the two samples share it. Counting it as a difference would hide contamination in exactly the low-coverage samples where contamination matters most; counting it as a match would invent identity. `comparable_sites` is therefore the honest denominator.
+Three details decide whether the identity means anything, and each is a deliberate choice:
+
+- **Different lengths.** Consensuses are rarely the same length, so only the aligned overlap is compared and its size is reported. 100% identity over 300 nt is meaningless; over 5000 nt it is not. Pairs with fewer than `--contam_min_comparable` (500) comparable positions are not judged at all rather than reported with a misleading identity.
+- **Ns and IUPAC codes are excluded from both the numerator and the denominator.** A position that is N in one genome says nothing about whether the two share it. Counting it as a difference would hide the signal in exactly the low-coverage assemblies where it matters most; counting it as a match would invent identity. This is also what makes the same-sample check work, since two assemblies of one virus differ mostly by *which regions each of them left ambiguous*.
 - **No `-perc_identity` filter on blastn.** Blast's own identity counts every N as a mismatch, so a genuine contaminant with 25% Ns scores ~75% and would be discarded before it was ever examined. Instead, non-overlapping HSPs are summed, which recovers the segments between long N runs.
 
-Two consensuses from the **same** sample are never compared: those are real co-infections assembled against two references.
+The result is a separate table rather than an extra column of `<run_name>_summary.tsv` because both findings are properties of a *pair*, not of a sample — and because summary rows are written per assembly, in parallel, long before the last consensus of the run exists. A flagged pair names its partner, so the two tables are joined on `sample` when needed.
 
-The result is a separate table rather than an extra column of `<run_name>_summary.tsv` because contamination is a property of a *pair*, not of a sample — and because summary rows are written per assembly, in parallel, long before the last consensus of the run exists. A flagged pair names its partner, so the two tables are joined on `sample` when needed.
-
-**A flag is a lead, not a verdict.** Confirm it by looking for the partner's alleles as low-frequency variants in the VCF of the suspected recipient: real carry-over usually leaves a minor-allele trail, a genuine epidemiological link does not.
+**A flag is a lead, not a verdict.** For `possible_contamination`, confirm by looking for the partner's alleles as low-frequency variants in the VCF of the suspected recipient: real carry-over usually leaves a minor-allele trail, a genuine epidemiological link does not. For `possible_same_genome`, compare the two VP1 calls in `<run_name>_vp1_genotypes.tsv` and the coverage and depth of each assembly in the summary; keep the assembly with the better statistics and the VP1-consistent tag.
 
 ## Software version registry
 
@@ -304,12 +315,15 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 | `--ivar_fin_m` | `5` | minimum depth for a final consensus base. At ~10x mean depth, a value of 10 masks ~47% of a minor co-infecting genome as N versus ~8% at 5 |
 | `--ivar_init_t` / `--ivar_fin_t` | `0.4` / `0.6` | frequency a base must reach to be called on its own. A **higher** value produces **more** IUPAC ambiguity codes. Low for the scaffold consensus (it only needs to remove the divergence from a distant reference), higher for the final one (a 55/45 site is written as an ambiguity code, recording intra-sample diversity) |
 | `--mpileup_max_depth` / `--mpileup_max_depth_final` | `100` / `500` | pileup depth cap for the first and the final consensus; `0` for unlimited |
-| `--min_trimmed_reads` | `1000` | samples with fewer reads after `fastp` are dropped |
+| `--min_trimmed_reads` | `1000` | samples with fewer reads after `fastp` are dropped (a `WARN` line names each one) |
 | `--mode` | `metagenomic` | `amplicon` \| `capture` \| `metagenomic` — see above |
 | `--primer_fwd` | 5'UTR primer | forward primer for `--mode amplicon` (IUPAC allowed) |
 | `--primer_max_mismatch` | `2` | mismatches tolerated when locating the primer in a reference |
 | `--check_contamination` | on | all-vs-all comparison of the run's consensuses |
-| `--contam_flag_identity` / `--contam_min_comparable` | `99.9` / `500` | flag threshold and the minimum unambiguous overlap needed to judge a pair |
+| `--contam_flag_identity` | `99.9` | flag two **different** samples above this identity as possible contamination |
+| `--contam_same_genome_identity` | `99.0` | flag two assemblies of **one** sample above this identity as the same virus |
+| `--contam_min_comparable` | `500` | minimum unambiguous overlap needed to judge a pair |
+| `--contam_intraspecies_only` | on | compare only consensuses whose tag prefix (RV-A, RV-C, EV-B, …) matches |
 | `--call_variants` | on | per-position VCF (`vcf/`) against the final consensus |
 | `--rhinovirus` | off | enable VP1 genotyping |
 | `--run_kraken2` + `--kraken2_db` | off | remove host reads before assembly (see `docs/making_kraken2_human_db.md`) |
@@ -325,7 +339,9 @@ A `no_hit` result is not a failure — non-rhinovirus consensuses (enterovirus, 
 ## Known limitations
 
 - Two strains of the **same** genotype in one sample collapse into a single assembly (one reference per tag).
+- Conversely, one virus can be assembled **twice** against two different genotype references of its species, looking like a co-infection. The consensus-vs-consensus check flags this as `possible_same_genome`; it is detected and reported, not prevented.
 - Only the **forward** primer is trimmed in `--mode amplicon`, which matches a design whose reverse primer anneals to the poly(A) tail. A multi-amplicon (tiling) scheme would need a full primer BED instead.
+- The consensus and the VCF apply **different mapping-quality filters**: `iVar` builds the consensus from a pileup with no MAPQ floor (the iVar convention: `--min-BQ 0` in mpileup, quality filtering delegated to `ivar -q`), while `bcftools mpileup` uses `--min-MQ 20`. On a 7 kb non-repetitive genome the two agree in practice, but at a repetitive locus the VCF can be blank where the consensus called a base.
 - A genotype present in the sample but **absent from the genome database** scatters its reads across related genotypes, several of which may pass the selection thresholds with partial (~35–55%) coverage. Genuine detections typically show ~99–100% coverage.
 
 ## Credits

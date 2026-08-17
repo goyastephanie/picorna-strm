@@ -70,7 +70,7 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --adapter_trimming  {ARG_PATH}      Custom adapter FASTA file (default: assets/adapter.fasta)
 --save_trimmed_reads {ARG_FLAG}     Save the fastp-trimmed FASTQs
 --save_trimmed_fail {ARG_FLAG}      Save the reads fastp discarded
---trim_len          {ARG_PATH}      Filter out reads below this length after trimming (default: 50)
+--trim_len          {ARG_INT}       Filter out reads below this length after trimming (default: 50)
 --save_merged       {ARG_FLAG}      Save merged reads from fastp
 
 {header("Kraken2")}
@@ -125,15 +125,26 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --ivar_var_t        {ARG_DECIMAL}   Minimum alternate allele frequency to report (default: 0.03)
 --ivar_var_m        {ARG_INT}       Minimum depth to call a variant (default: 10)
 
-{header("Cross-contamination check")}
+{header("Consensus-vs-consensus check (contamination / duplicate assembly)")}
 --check_contamination {ARG_FLAG}    All-vs-all comparison of the run's final consensuses, written to
                                     <output>/<run_name>_contamination.tsv (default: true). Only positions
                                     where both genomes call an unambiguous A/C/G/T are compared, so Ns
-                                    neither create nor hide identity. Pairs from the same sample are
-                                    ignored (those are real co-infections).
+                                    neither create nor hide identity. Two flags:
+                                      possible_contamination -> near-identical, DIFFERENT samples
+                                      possible_same_genome   -> near-identical, SAME sample: one virus
+                                                                assembled against two genotype references
+                                                                (e.g. RV-A51 also assembled as RV-A77),
+                                                                not a co-infection. Drop one assembly.
 --contam_min_comparable {ARG_INT}   Min unambiguous overlapping positions needed to judge a pair (default: 500)
 --contam_flag_identity {ARG_DECIMAL}
-                                    Flag pairs at or above this % identity (default: 99.9)
+                                    Flag DIFFERENT samples at or above this % identity (default: 99.9)
+--contam_same_genome_identity {ARG_DECIMAL}
+                                    Flag two assemblies of the SAME sample at or above this % identity
+                                    (default: 99.0). Two genotypes of one species sit at ~75-85%.
+--contam_intraspecies_only {ARG_FLAG}
+                                    Compare only consensuses of the same species, i.e. the tag without its
+                                    trailing serotype number: RV-A51 vs RV-A77 yes, RV-A51 vs RV-C11 no
+                                    (default: true)
 
 {header("Reference selection thresholds")}
 --ref_min_depth     {ARG_INT}       The minimum depth an alignment against a reference must have to qualify for assembly (default: 3)
@@ -152,12 +163,12 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 
 --ivar_init_t       {ARG_DECIMAL}   Frequency threshold for the INITIAL consensus (default: 0.4 -- near-pure
                                     majority calling; this sequence is only a mapping scaffold)
---ivar_init_q       {ARG_INT}       The minimum mapping quality a read must have to be used during consensus construction (default: 20)
+--ivar_init_q       {ARG_INT}       Minimum BASE quality for a base to be counted by iVar consensus (default: 20)
 --ivar_init_m       {ARG_INT}       The minimum depth at an alignment base; if below this, base is marked as "N" (default: 1)
 
 --ivar_fin_t        {ARG_DECIMAL}   Frequency threshold for the FINAL consensus (default: 0.6 -- genuinely
                                     mixed sites are written as IUPAC codes, recording intra-sample diversity)
---ivar_fin_q        {ARG_INT}       The minimum mapping quality a read must have to be used during consensus construction (default: 20)
+--ivar_fin_q        {ARG_INT}       Minimum BASE quality for a base to be counted by iVar consensus (default: 20)
 --ivar_fin_m        {ARG_INT}       The minimum depth at an alignment base; if below this, base is marked as "N" (default: 5)
 
 {header("Advanced")}
@@ -185,7 +196,7 @@ VALUE_OPTS = {
     "mode", "primer_fwd", "primer_max_mismatch",
     "vcf_min_bq", "vcf_min_mq", "vcf_max_depth",
     "ivar_var_q", "ivar_var_t", "ivar_var_m",
-    "contam_min_comparable", "contam_flag_identity",
+    "contam_min_comparable", "contam_flag_identity", "contam_same_genome_identity",
     "ref_min_depth", "ref_min_cov",
     "mpileup_max_depth", "mpileup_max_depth_final",
     "cons_init_min_depth", "cons_init_min_cov",

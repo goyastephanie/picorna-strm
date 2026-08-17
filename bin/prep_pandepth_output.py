@@ -5,9 +5,12 @@ import sys
 import csv
 
 # PANDEPTH_COLS = ["chr", "length", "covered_site", "depth", "coverage", 	"meandepth"]
+# Column order of `samtools coverage` output. Index matters: bin/select_reference.py
+# and modules/bwa_mem_align.nf both address these positionally (coverage = 6th
+# field, meandepth = 7th, 1-based).
 COV_COLS = [
     "#rname",
-    "Input options",
+    "startpos",
     "endpos",
     "numreads",
     "covbases",

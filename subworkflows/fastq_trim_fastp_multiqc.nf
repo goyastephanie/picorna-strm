@@ -38,7 +38,15 @@ workflow FASTQ_TRIM_FASTP_MULTIQC {
     // channel and breaks the next process that destructures it
     ch_trim_reads
         .join(ch_trim_json)
-        .filter { meta, reads, json -> getFastpReadsAfterFiltering(json) >= val_min_read_trim_limit }
+        .filter { meta, reads, json ->
+            def n = getFastpReadsAfterFiltering(json)
+            // a dropped sample produces no assembly, no summary row and no entry
+            // under fail/ -- say so on the console, or it just vanishes
+            if (n < val_min_read_trim_limit) {
+                log.warn "${meta.id}: ${n} reads after fastp, below --min_trimmed_reads ${val_min_read_trim_limit}; sample excluded from assembly"
+            }
+            return n >= val_min_read_trim_limit
+        }
         .map { meta, reads, json -> [ meta, reads ] }
         .set { ch_trim_reads }
 

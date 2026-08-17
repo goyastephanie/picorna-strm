@@ -70,13 +70,13 @@ process SUMMARY {
     # OUTPUT TO TSV #
     ##################
 
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
         "sample_name" "raw_reads" "trimmed_reads" "pct_reads_trimmed" "ref_tag" "ref_acc" "ref_header"\
         "mapped_reads_ref" "pct_reads_mapped_ref" "coverage_ref" "mean_depth_ref" \
         "mapped_reads_c1" "pct_reads_mapped_c1" "coverage_c1" "mean_depth_c1" \
         "consensus_length" "num_ns_consensus" "pct_ns" "num_ambiguous" > ${prefix}_summary.tsv
 
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
         "$meta.id" "\$raw_reads" "\$trimmed_reads" "\$pct_reads_trimmed_formatted" "${ref_info.tag}" "${ref_info.acc}" "${ref_info.header}" \
         "\$mapped_reads_ref" "\$pct_reads_mapped_formatted_ref" "\$coverage_ref" "\$mean_depth_ref" \
         "\$mapped_reads_c1" "\$pct_reads_mapped_formatted_c1" "\$coverage_c1" "\$mean_depth_c1" \

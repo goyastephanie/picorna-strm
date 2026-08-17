@@ -11,7 +11,11 @@ process BWA_MEM_ALIGN {
     output:
     tuple val(meta), val(ref_info), path("*.sorted.bam"), path("*.sorted.bam.bai"), emit: bam
     tuple val(meta), val(ref_info), path(ref),                                      emit: ref
-    tuple val(meta), path(fastq),                                                   emit: reads
+    // ref_info travels with the reads so that downstream re-joins can key on
+    // [meta, ref_info]. A sample with a co-infection emits one item per selected
+    // reference, all carrying the SAME meta, so meta alone is not a unique key
+    // and `join` explicitly does not support duplicate keys.
+    tuple val(meta), val(ref_info), path(fastq),                                    emit: reads
     tuple val(meta), path("*_failed_assembly.tsv"), optional: true,                 emit: failed_assembly
     tuple val(meta), val(ref_info), path("*_covstats.tsv"), optional: true,         emit: covstats
 

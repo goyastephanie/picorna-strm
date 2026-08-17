@@ -154,7 +154,7 @@ workflow CONSENSUS_ASSEMBLY {
     final_consensus     = BUILD_FINAL_CONSENSUS.out.consensus
     initial_consensus   = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.consensus
     bam                 = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.bam   // channel: [ val(meta), val(ref_info), path(bam), path(bai) ]
-    reads               = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.reads // channel: [ val(meta), path(reads) ]
+    reads               = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.reads // channel: [ val(meta), val(ref_info), path(reads) ]
     init_covstats       = BWA_MEM_ALIGN_QUERY.out.covstats
     final_covstats      = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.covstats
     // the exact alignment + reference the final consensus was called from,
