@@ -13,7 +13,8 @@
 //
 process PRIMER_TRIM {
     tag "${meta.id}_${ref_info.acc}_${ref_info.tag}"
-    label 'process_medium'
+    // ivar trim is single-threaded; only the samtools sort that follows uses cpus
+    label 'process_low'
     container 'quay.io/biocontainers/ivar:1.4.4--h077b44d_0'
 
     input:

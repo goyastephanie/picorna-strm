@@ -8,7 +8,8 @@
 //
 process IVAR_VARIANTS {
     tag "${meta.id}_${ref_info.acc}_${ref_info.tag}"
-    label 'process_medium'
+    // samtools mpileup | ivar variants: both single-threaded
+    label 'process_single'
     container 'quay.io/biocontainers/ivar:1.4.4--h077b44d_0'
 
     input:

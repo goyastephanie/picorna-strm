@@ -13,7 +13,9 @@
 //
 process BCFTOOLS_MPILEUP {
     tag "${meta.id}_${ref_info.acc}_${ref_info.tag}"
-    label 'process_medium'
+    // bcftools mpileup is single-threaded here (no --threads: that flag only
+    // parallelises BGZF compression, and the output is uncompressed VCF)
+    label 'process_single'
     container 'quay.io/biocontainers/bcftools:1.17--haef29d1_0'
 
     input:

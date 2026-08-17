@@ -1,6 +1,9 @@
 process IVAR_CONSENSUS {
     tag "${meta.id}_${ref_info.acc}_${ref_info.tag}"
-    label 'process_high'
+    // samtools mpileup | ivar consensus are BOTH single-threaded (this module
+    // never references task.cpus). 'process_high' would reserve every core of the
+    // machine to use one, serialising the whole consensus stage.
+    label 'process_single'
     container 'quay.io/biocontainers/ivar:1.4.4--h077b44d_0'
 
     input:
