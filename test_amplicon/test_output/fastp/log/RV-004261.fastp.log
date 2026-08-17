@@ -1,0 +1,32 @@
+Detecting adapter sequence for read1...
+No adapter detected for read1
+
+Read1 before filtering:
+total reads: 2259442
+total bases: 268586766
+Q20 bases: 265914808(99.0052%)
+Q30 bases: 256697039(95.5732%)
+
+Read1 after filtering:
+total reads: 2259143
+total bases: 268497323
+Q20 bases: 265868465(99.0209%)
+Q30 bases: 256677840(95.5979%)
+
+Filtering result:
+reads passed filter: 2259143
+reads failed due to low quality: 1
+reads failed due to too many N: 0
+reads failed due to too short: 298
+reads with adapter trimmed: 0
+bases trimmed due to adapters: 0
+reads with polyX in 3' end: 116
+bases trimmed in polyX tail: 2242
+
+Duplication rate (may be overestimated since this is SE data): 77.5908%
+
+JSON report: RV-004261.fastp.json
+HTML report: RV-004261.fastp.html
+
+fastp --in1 RV-004261.fastq.gz --out1 RV-004261.fastp.fastq.gz --thread 4 --json RV-004261.fastp.json --html RV-004261.fastp.html --adapter_fasta adapter.fasta --cut_front --cut_tail --trim_poly_x --cut_mean_quality 20 --qualified_quality_phred 20 --unqualified_percent_limit 20 --length_required 50 
+fastp v0.23.2, time used: 16 seconds

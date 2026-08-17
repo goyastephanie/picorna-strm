@@ -1,0 +1,4 @@
+sample_name	raw_reads	trimmed_reads	pct_reads_trimmed	ref_tag	ref_acc	ref_header	mapped_reads_ref	pct_reads_mapped_ref	coverage_ref	mean_depth_ref	mapped_reads_c1	pct_reads_mapped_c1	coverage_c1	mean_depth_c1	consensus_length	num_ns_consensus	pct_ns	num_ambiguous						
+RV-005523	383732	383706	99.99	RV-C40	OK254858.1	RV-C40	329439	85.85	94.5854	4231.73	383695	99.99	100	5221.96	 6647	0	0.0000	0						
+RV-004261	2259442	2259143	99.99	RV-A18	RV326341	RV-A18	2227590	98.59	93.9309	37173.9	2259061	99.98	100	40018.4	 6696	0	0.0000	4						
+RV-021526	410964	410938	99.99	RV-A75	RV021526	RV-A75	410938	99.99	93.8764	5229.6	410927	99.99	100	5581.98	 6703	0	0.0000	0						
