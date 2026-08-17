@@ -59,8 +59,18 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --refs              {ARG_PATH}      Reference FASTA file (default: assets/PICORNA_DB_v20280814_tag.fasta)
 --print_log         {ARG_FLAG}      Print pipeline output to screen
 --use_mem2          {ARG_FLAG}      Use BWA-MEM2 instead of the default BWA
---sra_proper_pair   {ARG_FLAG}      Exclude unpaired reads from being exported to SRA fastqs for paired-end alignments. 
 --min_trimmed_reads {ARG_INT}       Exclude samples if they have a read count below this number after trimming.
+
+{header("Optional heavy outputs (off by default)")}
+--save_sra_fastq    {ARG_FLAG}      Write the reads of each assembly as FASTQ into final_files/SRA/, ready
+                                    for submission. Comparable in size to the input FASTQ, so it is only
+                                    produced on request; without it the step does not run at all.
+--sra_proper_pair   {ARG_FLAG}      With --save_sra_fastq, exclude unpaired reads for paired-end alignments
+--save_db_bam       {ARG_FLAG}      Keep the BAM of the reads against the WHOLE reference database in
+                                    final_files/align_to_db/. Nothing downstream reads it; the coverage
+                                    table *_covstats.tsv, which documents reference selection, is always
+                                    published either way.
+--del_nondb_bams    {ARG_FLAG}      Do not publish the BAMs of the two assembly passes
 
 {header("Runtime")}
 -profile            {ARG_TEXT}      Use with "docker" to run the pipeline with docker (avoids having to download all software used)
@@ -88,8 +98,11 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 --rhinovirus        {ARG_FLAG}      Type each final consensus by VP1 (authoritative RV genotype call).
                                     Writes <run_name>_vp1_genotypes.tsv and per-consensus TSVs.
 --vp1_db            {ARG_PATH}      Nucleotide VP1 database (default: db/VP1_NT_from_picorna.fasta)
---vp1_min_identity  {ARG_INT}       Min blastn % identity for a VP1 hit (default: 72)
---vp1_min_aln_len   {ARG_INT}       Min VP1 alignment length in nt (default: 300)
+--vp1_min_identity  {ARG_INT}       Min % identity for a VP1 hit (default: 72). Computed only over
+                                    positions where both sequences call an unambiguous A/C/G/T, so Ns
+                                    in the consensus neither create nor destroy identity.
+--vp1_min_aln_len   {ARG_INT}       Min number of those unambiguous comparable positions (default: 300),
+                                    summed over all non-overlapping blast HSPs.
 --vp1_ambiguous_margin {ARG_DECIMAL}
                                     Flag the call as ambiguous if the runner-up genotype is within this
                                     % identity (default: 1.0)
@@ -183,7 +196,6 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 {header("Misc")}
 --branch            {ARG_TEXT}      The branch of the pipeline to use. Default (and stable): main. Unstable branch: staging.
 --local             {ARG_FLAG}      Run the local copy of the pipeline (resolved next to this script). Recommended for this fork.
---del_nondb_bams    {ARG_FLAG}      Delete all output BAMs except for the one showing alignment to the entire reference database.
 """
 
 

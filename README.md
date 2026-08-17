@@ -125,15 +125,14 @@ Inside `--output`:
 | Path | Contents |
 |---|---|
 | `final_files/final_assemblies/` | final consensus genomes (one per sample per detected organism) |
-| `final_files/align_to_db/` | coverage of every database reference — useful to audit what was and was not detected |
-| `final_files/align_to_selected_ref/` | BAMs against the selected reference(s) |
-| `final_files/align_to_consensus/` | first consensus and BAMs of the second pass |
+| `final_files/align_to_db/` | `*_covstats.tsv`: coverage of every database reference — the evidence behind reference selection. The BAM only with `--save_db_bam` |
+| `final_files/align_to_selected_ref/` | the reference sequence used, and the BAM of the first pass |
+| `final_files/align_to_consensus/` | **the first consensus** (keep it: it is the reference of the VCFs) and the BAM of the second pass |
 | `vcf/` | per-position VCF per consensus genome (intra-host diversity) |
 | `final_files/variants/` | called-variant table, with `--ivar_variants` |
-| `final_files/vp1_genotyping/` | per-consensus VP1 typing (with `--rhinovirus`) |
 | `primer_trim/` | primer BED located for each alignment (`--mode amplicon`) |
-| `final_files/SRA/` | mapped reads as FASTQ, ready for submission |
-| `fastp/log/` | fastp JSON/HTML/log per sample |
+| `final_files/SRA/` | mapped reads as FASTQ, only with `--save_sra_fastq` |
+| `fastp/json/` | fastp JSON per sample: the machine-readable QC record (Q20/Q30, duplication, adapter content, per-cycle quality) and the only way to regenerate the MultiQC report after `work/` is deleted. The HTML and the plain-text log are not published — MultiQC renders the first, and the second holds nothing the JSON does not |
 | `kraken2/` | Kraken2 reports, with `--run_kraken2` |
 | `seqtk_sample/` | subsampled FASTQs, with `--save_sample_reads` |
 | `<run_name>_summary.tsv` | 19 columns per assembly: raw/trimmed reads, mapped reads, coverage and mean depth for both alignment passes, consensus length, Ns and ambiguity codes |
@@ -187,6 +186,14 @@ Every run writes `<output>/pipeline_info/software_versions.yml` recording:
 - the path and **MD5** of the genome database (and of the VP1 database with `--rhinovirus`), so a re-run can be shown to have used the same sequences.
 
 Together with `params.json`, which records every parameter the run actually used, this is enough to reproduce a result exactly.
+
+### Disk footprint
+
+BAMs are published as **hard links**, not copies: the published file and the one in `work/` are the same inode, so publishing costs no extra space, and deleting `work/` after a run does **not** lose them — the published entry keeps the data alive. This requires `work/` and `--output` to be on the same filesystem, which is the normal case; on separate volumes Nextflow will report an error and the block should be switched back to `mode: 'copy'`. One consequence worth knowing: `du` counts a hard-linked file once, so the output directory legitimately reports less space than the sum of its files.
+
+The two genuinely large outputs are off by default. `--save_sra_fastq` writes the reads of each assembly as FASTQ (comparable in size to the input); without it the step does not run at all. `--save_db_bam` keeps the BAM against the whole database, which no downstream step reads — `*_covstats.tsv` is always published and is what documents reference selection. `--del_nondb_bams` additionally suppresses the BAMs of the two assembly passes.
+
+Per-consensus VP1 tables are not published either: every row of them is already in `<run_name>_vp1_genotypes.tsv`.
 
 ## Databases
 
@@ -332,7 +339,11 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 
 ### Interpreting VP1 calls
 
-The winner is the hit with the highest **bitscore** (which combines identity and alignment length), not simply the highest identity. The 72% identity floor is a noise filter, **not a taxonomic threshold**: a genotype absent from the database will be reported as its nearest relative rather than as a novel type. Treat identities below ~90% as candidate unrepresented types. When the runner-up genotype falls within `--vp1_ambiguous_margin` (1% by default), the call is flagged `ambiguous:<genotype>(<identity>%)` in the `vp1_note` column.
+The winner is the database entry with the highest **summed bitscore** across its non-overlapping HSPs, not simply the highest identity. The 72% identity floor is a noise filter, **not a taxonomic threshold**: a genotype absent from the database is reported as its nearest relative rather than as a novel type. Treat identities below ~90% as candidate unrepresented types. When the runner-up genotype falls within `--vp1_ambiguous_margin` (1% by default), the call is flagged `ambiguous:<genotype>(<identity>%)` in the `vp1_note` column.
+
+`vp1_identity` and `vp1_aln_len` do not come straight from blast. blastn is a **local** aligner: it returns HSPs, and a run of Ns long enough to trip its X-drop cuts the alignment in two, after which blast re-seeds on the other side. Measured on this database with a real 849 nt VP1 and N runs spaced every 200 bases, runs of up to 25 Ns are absorbed into a single full-length HSP, while runs of 30 or more break it into ~200 nt fragments. Reporting only the best fragment would then fail the 300 nt floor for a consensus that is only 10% N. So all non-overlapping HSPs of an entry are summed, and identity is computed **only over positions where both sequences call an unambiguous A/C/G/T** — the same treatment used by the cross-contamination check, and for the same reason. `vp1_aln_len` is therefore the number of comparable unambiguous positions, not blast's raw alignment length.
+
+The search runs with `-task blastn` (word size 11) rather than the default megablast (word size 28). Megablast loses the hit above roughly 13% divergence, which puts the 72% identity floor out of its reach: a divergent or unrepresented genotype came back as `no_hit` instead of as its nearest relative. Verified on all 184 database VP1s used as queries: identical genotype calls under both, with no new ambiguous flags.
 
 A `no_hit` result is not a failure — non-rhinovirus consensuses (enterovirus, echovirus, …) simply have no VP1 entry in this database. VP1 typing never gates assembly.
 

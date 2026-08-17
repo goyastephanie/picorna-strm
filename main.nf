@@ -246,10 +246,14 @@ workflow {
             )
         }
 
-        BAM_TO_FASTQ(
-            CONSENSUS_ASSEMBLY.out.bam,
-            params.sra_proper_pair
-        )
+        // Reads of each assembly as FASTQ for SRA. Gated on the flag rather than
+        // on publishDir so the work is skipped entirely, not just the copy.
+        if (params.save_sra_fastq) {
+            BAM_TO_FASTQ(
+                CONSENSUS_ASSEMBLY.out.bam,
+                params.sra_proper_pair
+            )
+        }
 
         //
         // Optional: rhinovirus genotyping by VP1.
