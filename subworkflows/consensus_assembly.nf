@@ -134,11 +134,19 @@ workflow CONSENSUS_ASSEMBLY {
     }
 
 
+    // One multiMap with a SEPARATE branch per consumer. Reusing the same branch
+    // for BUILD_FINAL_CONSENSUS and for the variant callers downstream would
+    // make a single queue channel serve several subscribers, which is exactly
+    // the situation where items can end up going to only one of them.
     ch_bam2
         .join(ch_ref2, by: [0, 1])
         .multiMap { meta, ref_info, bam, bai, ref ->
-            bam: [ meta, ref_info, bam, bai ]
-            ref: [ meta, ref_info, ref ]
+            bam:      [ meta, ref_info, bam, bai ]
+            ref:      [ meta, ref_info, ref ]
+            vcf_bam:  [ meta, ref_info, bam, bai ]
+            vcf_ref:  [ meta, ref_info, ref ]
+            var_bam:  [ meta, ref_info, bam, bai ]
+            var_ref:  [ meta, ref_info, ref ]
         }
         .set { ch_pass2 }
 
@@ -155,7 +163,9 @@ workflow CONSENSUS_ASSEMBLY {
     init_covstats       = BWA_MEM_ALIGN_QUERY.out.covstats
     final_covstats      = IVAR_CONSENSUS_BWA_MEM_ALIGN_INITIAL_ASSEMBLY.out.covstats
     // the exact alignment + reference the final consensus was called from,
-    // ready for variant calling
-    final_bam           = ch_pass2.bam
-    final_ref           = ch_pass2.ref
+    // ready for variant calling. One dedicated branch per consumer.
+    final_bam           = ch_pass2.vcf_bam
+    final_ref           = ch_pass2.vcf_ref
+    var_bam             = ch_pass2.var_bam
+    var_ref             = ch_pass2.var_ref
 }

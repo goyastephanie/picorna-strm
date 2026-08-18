@@ -62,19 +62,20 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
                                     A dropped sample is named in a WARN line and produces no assembly.
 
 {header("Optional heavy outputs (off by default)")}
---save_sra_fastq    {ARG_FLAG}      Write the reads of each assembly as FASTQ into final_files/SRA/, ready
-                                    for submission. Comparable in size to the input FASTQ, so it is only
-                                    produced on request; without it the step does not run at all.
---sra_proper_pair   {ARG_FLAG}      With --save_sra_fastq, exclude unpaired reads for paired-end alignments
---save_db_bam       {ARG_FLAG}      Keep the BAM of the reads against the WHOLE reference database in
-                                    final_files/align_to_db/. Nothing downstream reads it; the coverage
+--save_sra_fastq    {ARG_FLAG}      DEFAULT: OFF. Write the reads of each assembly as FASTQ into SRA/,
+                                    ready for submission. Comparable in size to the input FASTQ, so it is
+                                    only produced on request; without it the step does not run at all.
+--sra_proper_pair   {ARG_FLAG}      DEFAULT: OFF. With --save_sra_fastq, exclude unpaired reads for
+                                    paired-end alignments.
+--save_db_bam       {ARG_FLAG}      DEFAULT: OFF. Keep the BAM of the reads against the WHOLE reference
+                                    database in align_to_db/. Nothing downstream reads it; the coverage
                                     table *_covstats.tsv, which documents reference selection, is always
                                     published either way.
---del_nondb_bams    {ARG_FLAG}      Skip publishing the BAMs of the two assembly passes, i.e. the contents
-                                    of final_files/align_to_selected_ref/ and align_to_consensus/. It
-                                    deletes nothing: the BAMs still exist under work/ and every other file
-                                    in those directories (the reference used, the first consensus) is
-                                    still published. Name inherited from upstream revica-strm.
+--save_ref_bam      {ARG_FLAG}      DEFAULT: OFF. Write align_to_selected_ref/ with the FIRST-pass BAM,
+                                    its .bai and the selected database reference in FASTA. The delivered
+                                    consensus comes from the SECOND pass, which is always published in
+                                    final_consensus_assemblies/, so this is only for auditing how the
+                                    reads sat on the database reference.
 
 {header("Runtime")}
 -profile            {ARG_TEXT}      Container engine. 'docker' is the only profile defined, and it is what
@@ -148,7 +149,6 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
                                     (default: TCCTCCGGYCCCTGAATGYGGCTAA). The reverse primer anneals to
                                     the genomic poly(A) tail, so it needs no trimming.
 --primer_max_mismatch {ARG_INT}     Mismatches tolerated when locating the primer (default: 2)
---save_primertrim_bams {ARG_FLAG}   Keep the primer-trimmed BAMs in the output directory
 
 {header("Manual overrides (normally just use --mode)")}
 --trim_primers      {ARG_FLAG}      Force primer trimming regardless of mode

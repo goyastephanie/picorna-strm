@@ -116,7 +116,7 @@ Because the reference is the sample's own consensus, these are differences **wit
 
 ### Optional: called-variant table
 
-`--ivar_variants` additionally runs `ivar variants` on the same alignment, producing `*.variants.tsv` in `final_files/variants/` — a filtered table of variants with per-allele depth and frequency. Thresholds: `--ivar_var_q`, `--ivar_var_t`, `--ivar_var_m`. The VCF itself comes from `bcftools mpileup` above; iVar is used here only for its allele-frequency table.
+`--ivar_variants` additionally runs `ivar variants` on the same alignment, producing `*.variants.tsv` in `variants/` — a filtered table of variants with per-allele depth and frequency. Thresholds: `--ivar_var_q`, `--ivar_var_t`, `--ivar_var_m`. The VCF itself comes from `bcftools mpileup` above; iVar is used here only for its allele-frequency table.
 
 ## Output
 
@@ -124,74 +124,32 @@ Inside `--output`:
 
 | Path | Contents |
 |---|---|
-| `final_files/final_assemblies/` | final consensus genomes (one per sample per detected organism) |
-| `final_files/align_to_db/` | `*_covstats.tsv`: coverage of every database reference — the evidence behind reference selection. The BAM only with `--save_db_bam` |
-| `final_files/align_to_selected_ref/` | the reference sequence used, and the BAM of the first pass |
-| `final_files/align_to_consensus/` | **the first consensus** (keep it: it is the reference of the VCFs) and the BAM of the second pass |
-| `vcf/` | per-position VCF per consensus genome (intra-host diversity) |
-| `final_files/variants/` | called-variant table, with `--ivar_variants` |
+| `final_consensus_fasta/` | **the delivered consensus genomes**, one per sample per detected organism |
+| `final_consensus_assemblies/` | the alignment each of those consensuses was called from: the second-pass BAM, its `.bai`, and the **first consensus** in FASTA, which is that BAM's reference and the reference of every VCF. In `--mode amplicon` the BAM published here is the primer-trimmed one, because that is the alignment the consensus and the VCF actually come from; the untrimmed version is not published |
+| `vcf/` | per-position VCF per consensus genome (intra-host diversity), in the coordinates of the first consensus |
+| `align_to_db/` | `*_covstats.tsv`: coverage of every database reference — the evidence behind reference selection. The BAM only with `--save_db_bam` |
+| `align_to_selected_ref/` | first-pass BAM, `.bai` and the selected database reference in FASTA. Only with `--save_ref_bam` |
+| `variants/` | called-variant table, with `--ivar_variants` |
 | `primer_trim/` | primer BED located for each alignment (`--mode amplicon`) |
-| `final_files/SRA/` | mapped reads as FASTQ, only with `--save_sra_fastq` |
-| `fastp/json/` | fastp JSON per sample: the machine-readable QC record (Q20/Q30, duplication, adapter content, per-cycle quality) and the only way to regenerate the MultiQC report after `work/` is deleted. The HTML and the plain-text log are not published — MultiQC renders the first, and the second holds nothing the JSON does not |
+| `SRA/` | mapped reads as FASTQ, only with `--save_sra_fastq` |
+| `fastp/json/` | fastp JSON per sample: the machine-readable QC record (Q20/Q30, duplication, adapter content, per-cycle quality) and the only way to regenerate the MultiQC report after `work/` is deleted |
 | `kraken2/` | Kraken2 reports, with `--run_kraken2` |
 | `seqtk_sample/` | subsampled FASTQs, with `--save_sample_reads` |
 | `<run_name>_summary.tsv` | 19 columns per assembly: raw/trimmed reads, mapped reads, coverage and mean depth for both alignment passes, consensus length, Ns and ambiguity codes |
-| `<run_name>_contamination.tsv` | all-vs-all comparison of the run's consensuses; flags possible contamination and duplicate assemblies |
 | `<run_name>_vp1_genotypes.tsv` | consolidated VP1 genotype calls |
+| `<run_name>_contamination.tsv` | all-vs-all comparison of the run's consensuses; flags possible contamination and duplicate assemblies |
 | `<run_name>_multiqc.html` | MultiQC report |
 | `fail/` | references and samples that did not pass thresholds |
 | `pipeline_info/software_versions.yml` | container image per process, Nextflow build, pipeline revision, database MD5s |
 | `params.json` | every parameter the run actually used |
 
-## Consensus-vs-consensus check (contamination and duplicate assemblies)
-
-On by default (`--check_contamination`), every final consensus of the run is compared against every other one with `blastn`, and the result is written to `<output>/<run_name>_contamination.tsv`. The same measurement answers two different questions, told apart only by whether the two consensuses came from the same sample.
-
-**Different samples, near-identical → `possible_contamination`.** Index hopping, well-to-well carry-over and a mis-pipetted library all leave two samples carrying the same genome. Two genuinely separate infections, even within one outbreak, almost always differ by at least a few bases. Threshold: `--contam_flag_identity`, 99.9% by default.
-
-**Same sample, near-identical → `possible_same_genome`.** Reference selection can pick two references of two different genotypes for a *single* virus: if a sample carries RV-A51, its reads may also cover an RV-A77 reference well enough to pass the selection thresholds, and the pipeline then builds two consensuses of the same genome. VP1 typing usually gives the game away by calling both A51, and the two consensuses differ only where each of them happened to leave Ns. This is neither a co-infection nor contamination — it is one virus masquerading as two, and one of the two assemblies should be discarded. Threshold: `--contam_same_genome_identity`, 99.0% by default.
-
-The two thresholds differ on purpose. Between samples there is a real "related but distinct" case worth protecting, so the bar is strict. Within one sample there is not: a true co-infection of two genotypes of the same species sits around 75–85% identity genome-wide, an enormous margin below 99%. (Two strains of the *same* genotype in one sample cannot produce two rows at all — the pipeline builds one assembly per tag; see Known limitations.)
-
-Only consensuses of the **same species** are compared (`--contam_intraspecies_only`, on by default). The species is the tag with its trailing serotype number removed, so RV-A51 and RV-A77 are compared and RV-A51 and RV-C11 are not. Between species the identity is far below either threshold, so the restriction costs nothing and keeps the table free of 5'UTR-only hits. Note that for enteroviruses this prefix is the serotype label rather than the ICTV species — E11, CV-B3 and EV-B69 are all *Enterovirus B* but carry different prefixes and so are not compared; set `--contam_intraspecies_only false` to compare everything.
-
-| Column | Meaning |
-|---|---|
-| `sample_a`, `tag_a`, `sample_b`, `tag_b` | the two consensuses being compared |
-| `comparable_sites` | positions where **both** genomes call an unambiguous A/C/G/T |
-| `differences` | mismatches among those positions |
-| `pct_identity` | `100 x (comparable_sites - differences) / comparable_sites` |
-| `flag` | `possible_contamination`, `possible_same_genome`, or `ok` |
-
-Rows are sorted with contamination first, then duplicate assemblies, then everything else by descending identity.
-
-Three details decide whether the identity means anything, and each is a deliberate choice:
-
-- **Different lengths.** Consensuses are rarely the same length, so only the aligned overlap is compared and its size is reported. 100% identity over 300 nt is meaningless; over 5000 nt it is not. Pairs with fewer than `--contam_min_comparable` (500) comparable positions are not judged at all rather than reported with a misleading identity.
-- **Ns and IUPAC codes are excluded from both the numerator and the denominator.** A position that is N in one genome says nothing about whether the two share it. Counting it as a difference would hide the signal in exactly the low-coverage assemblies where it matters most; counting it as a match would invent identity. This is also what makes the same-sample check work, since two assemblies of one virus differ mostly by *which regions each of them left ambiguous*.
-- **No `-perc_identity` filter on blastn.** Blast's own identity counts every N as a mismatch, so a genuine contaminant with 25% Ns scores ~75% and would be discarded before it was ever examined. Instead, non-overlapping HSPs are summed, which recovers the segments between long N runs.
-
-The result is a separate table rather than an extra column of `<run_name>_summary.tsv` because both findings are properties of a *pair*, not of a sample — and because summary rows are written per assembly, in parallel, long before the last consensus of the run exists. A flagged pair names its partner, so the two tables are joined on `sample` when needed.
-
-**A flag is a lead, not a verdict.** For `possible_contamination`, confirm by looking for the partner's alleles as low-frequency variants in the VCF of the suspected recipient: real carry-over usually leaves a minor-allele trail, a genuine epidemiological link does not. For `possible_same_genome`, compare the two VP1 calls in `<run_name>_vp1_genotypes.tsv` and the coverage and depth of each assembly in the summary; keep the assembly with the better statistics and the VP1-consistent tag.
-
-## Software version registry
-
-Every run writes `<output>/pipeline_info/software_versions.yml` recording:
-
-- the container image launched for **each process** — since every process is pinned to a tagged image, the tag *is* the exact tool build that produced the results, and it cannot disagree with what actually ran;
-- the Nextflow version and build, the profile and container engine;
-- the pipeline revision and git commit, when run from a cloned repository;
-- the full command line;
-- the path and **MD5** of the genome database (and of the VP1 database with `--rhinovirus`), so a re-run can be shown to have used the same sequences.
-
-Together with `params.json`, which records every parameter the run actually used, this is enough to reproduce a result exactly.
+The two FASTA files per assembly are **not** duplicates. `final_consensus_fasta/*_consensus_final.fa` is the delivered genome, called from the second alignment pass. `final_consensus_assemblies/*_consensus1.fa` is the intermediate scaffold: it is the reference the second-pass BAM is aligned to and the reference the VCF coordinates and REF alleles refer to, so deleting it makes the BAMs and VCFs uninterpretable. That is why it lives next to them rather than next to the deliverable.
 
 ### Disk footprint
 
 BAMs are published as **hard links**, not copies: the published file and the one in `work/` are the same inode, so publishing costs no extra space, and deleting `work/` after a run does **not** lose them — the published entry keeps the data alive. This requires `work/` and `--output` to be on the same filesystem, which is the normal case; on separate volumes Nextflow will report an error and the block should be switched back to `mode: 'copy'`. One consequence worth knowing: `du` counts a hard-linked file once, so the output directory legitimately reports less space than the sum of its files.
 
-The two genuinely large outputs are off by default. `--save_sra_fastq` writes the reads of each assembly as FASTQ (comparable in size to the input); without it the step does not run at all. `--save_db_bam` keeps the BAM against the whole database, which no downstream step reads — `*_covstats.tsv` is always published and is what documents reference selection. `--del_nondb_bams` additionally suppresses the BAMs of the two assembly passes.
+The large outputs are off by default. `--save_sra_fastq` writes the reads of each assembly as FASTQ (comparable in size to the input); without it the step does not run at all. `--save_db_bam` keeps the BAM against the whole database, which no downstream step reads — `*_covstats.tsv` is always published and is what documents reference selection. `--save_ref_bam` adds the first-pass alignment against the selected database reference, which is an audit trail rather than a result: the delivered consensus comes from the second pass, which is always published.
 
 Per-consensus VP1 tables are not published either: every row of them is already in `<run_name>_vp1_genotypes.tsv`.
 

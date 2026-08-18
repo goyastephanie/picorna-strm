@@ -56,9 +56,13 @@ process SUMMARY {
     # CONSENSUS GENOME #
     ####################
 
-    consensus_length=\$(awk '/^>/{if (l!="") print l; print; l=0; next}{l+=length(\$0)}END{print l}' ${consensus} | awk 'FNR==2{print val,\$1}')
+    # NOTE: `print val, \$1` (with an undefined `val`) used to be used here and
+    # below. awk prints the empty variable, then OFS, then the number, so every
+    # consensus_length cell in the TSV began with a stray space. Fixed to print
+    # the field alone.
+    consensus_length=\$(awk '/^>/{if (l!="") print l; print; l=0; next}{l+=length(\$0)}END{print l}' ${consensus} | awk 'FNR==2{print \$1}')
     num_ns_consensus=\$(grep -v "^>" ${consensus} | tr -c -d N | wc -c)
-    pct_ns=\$(echo "\${num_ns_consensus}/\${consensus_length}*100" | bc -l | awk 'FNR==1{print val,\$1}')
+    pct_ns=\$(echo "\${num_ns_consensus}/\${consensus_length}*100" | bc -l | awk 'FNR==1{print \$1}')
     pct_ns_formatted=\$(printf "%.4f" "\${pct_ns}")
     num_as_consensus=\$(grep -v "^>" ${consensus} | tr -c -d A | wc -c)
     num_cs_consensus=\$(grep -v "^>" ${consensus} | tr -c -d C | wc -c)

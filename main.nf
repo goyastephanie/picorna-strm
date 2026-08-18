@@ -249,8 +249,8 @@ workflow {
         // Optional filtered variant table with allele frequencies.
         if (params.ivar_variants) {
             IVAR_VARIANTS (
-                CONSENSUS_ASSEMBLY.out.final_bam,
-                CONSENSUS_ASSEMBLY.out.final_ref
+                CONSENSUS_ASSEMBLY.out.var_bam,
+                CONSENSUS_ASSEMBLY.out.var_ref
             )
         }
 
