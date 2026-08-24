@@ -147,7 +147,7 @@ The two FASTA files per assembly are **not** duplicates. `final_consensus_fasta/
 
 ### Disk footprint
 
-BAMs are published as **hard links**, not copies: the published file and the one in `work/` are the same inode, so publishing costs no extra space, and deleting `work/` after a run does **not** lose them — the published entry keeps the data alive. This requires `work/` and `--output` to be on the same filesystem, which is the normal case; on separate volumes Nextflow will report an error and the block should be switched back to `mode: 'copy'`. One consequence worth knowing: `du` counts a hard-linked file once, so the output directory legitimately reports less space than the sum of its files.
+Everything is published as a **copy**. Hard links were tried — they cost no disk and survive deleting `work/` — but they require `work/` and `--output` on the same filesystem, and when the link cannot be made Nextflow logs a warning and carries on, so the file is silently missing from the output. A predictable copy is worth the disk, and the number of published BAMs is now small: one per assembly, with the database and first-pass BAMs off by default.
 
 The large outputs are off by default. `--save_sra_fastq` writes the reads of each assembly as FASTQ (comparable in size to the input); without it the step does not run at all. `--save_db_bam` keeps the BAM against the whole database, which no downstream step reads — `*_covstats.tsv` is always published and is what documents reference selection. `--save_ref_bam` adds the first-pass alignment against the selected database reference, which is an audit trail rather than a result: the delivered consensus comes from the second pass, which is always published.
 
@@ -289,7 +289,7 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 | `--contam_same_genome_identity` | `99.0` | flag two assemblies of **one** sample above this identity as the same virus |
 | `--contam_min_comparable` | `500` | minimum unambiguous overlap needed to judge a pair |
 | `--contam_intraspecies_only` | on | compare only consensuses whose tag prefix (RV-A, RV-C, EV-B, …) matches |
-| `--call_variants` | on | per-position VCF (`vcf/`) against the final consensus |
+| `--call_variants` | on | per-position VCF (`vcf/`), in the coordinates of the **first** consensus, which is the reference of the alignment it is built from |
 | `--rhinovirus` | off | enable VP1 genotyping |
 | `--run_kraken2` + `--kraken2_db` | off | remove host reads before assembly (see `docs/making_kraken2_human_db.md`) |
 | `--vp1_min_identity` / `--vp1_min_aln_len` | `72` / `300` | **reporting** floor: minimum identity (%) and unambiguous comparable positions for a VP1 hit to be shown at all |
