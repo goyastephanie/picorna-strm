@@ -147,7 +147,7 @@ The two FASTA files per assembly are **not** duplicates. `final_consensus_fasta/
 
 ### Disk footprint
 
-Everything is published as a **copy**. Hard links were tried — they cost no disk and survive deleting `work/` — but they require `work/` and `--output` on the same filesystem, and when the link cannot be made Nextflow logs a warning and carries on, so the file is silently missing from the output. A predictable copy is worth the disk, and the number of published BAMs is now small: one per assembly, with the database and first-pass BAMs off by default.
+Everything is published as a **copy**, and every optional output is gated with `saveAs` returning `null` rather than with `enabled`. That is not a style choice: Nextflow resolves the `enabled` option as `Boolean.parseBoolean(value.toString())`, so a closure written there stringifies to something that is never `"true"` and the block silently publishes nothing at all. `saveAs` is genuinely called per file at task time, so it sees the final parameters. The number of published BAMs is small anyway: one per assembly, with the database and first-pass alignments off by default.
 
 The large outputs are off by default. `--save_sra_fastq` writes the reads of each assembly as FASTQ (comparable in size to the input); without it the step does not run at all. `--save_db_bam` keeps the BAM against the whole database, which no downstream step reads — `*_covstats.tsv` is always published and is what documents reference selection. `--save_ref_bam` adds the first-pass alignment against the selected database reference, which is an audit trail rather than a result: the delivered consensus comes from the second pass, which is always published.
 
