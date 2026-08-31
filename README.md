@@ -35,9 +35,9 @@ VP1 typing is deliberately **decoupled** from reference selection: assembly stil
 ## Quick start
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/greninger-lab/picorna-strm.git
 cd picorna-strm
-chmod +x picorna-strm bin/*.py     # only needed if the exec bit was lost
+chmod +x picorna-strm bin/*.py
 
 ./picorna-strm /path/to/fastq_dir -profile docker --output results
 ```
@@ -47,15 +47,15 @@ The first non-flag argument is the FASTQ directory; it must come **before** any 
 Typical runs:
 
 ```bash
-# amplicon: forward primer trimmed from consensus and variants
+# amplicon sequencing of rhinovirus genomes: forward primer trimmed from consensus and variants
 ./picorna-strm /path/to/amplicon_fastqs -profile docker \
     --mode amplicon --output results_amplicon --rhinovirus
 
-# hybridization capture (currently processed like metagenomic)
+# hybridization capture of enterovirus (currently processed like metagenomic)
 ./picorna-strm /path/to/capture_fastqs -profile docker \
-    --mode capture --output results_capture --rhinovirus --sample false
+    --mode capture --output results_capture
 
-# shotgun metagenomics: no primers, few PCR cycles -> neither
+# shotgun metagenomics of rhinovirus: no primers, few PCR cycles -> neither
 ./picorna-strm /path/to/metagenomic_fastqs -profile docker \
     --mode metagenomic --output results_meta --rhinovirus --sample false
 ```
@@ -147,11 +147,7 @@ The two FASTA files per assembly are **not** duplicates. `final_consensus_fasta/
 
 ### Disk footprint
 
-Everything is published as a **copy**, and every optional output is gated with `saveAs` returning `null` rather than with `enabled`. That is not a style choice: Nextflow resolves the `enabled` option as `Boolean.parseBoolean(value.toString())`, so a closure written there stringifies to something that is never `"true"` and the block silently publishes nothing at all. `saveAs` is genuinely called per file at task time, so it sees the final parameters. The number of published BAMs is small anyway: one per assembly, with the database and first-pass alignments off by default.
-
-The large outputs are off by default. `--save_sra_fastq` writes the reads of each assembly as FASTQ (comparable in size to the input); without it the step does not run at all. `--save_db_bam` keeps the BAM against the whole database, which no downstream step reads — `*_covstats.tsv` is always published and is what documents reference selection. `--save_ref_bam` adds the first-pass alignment against the selected database reference, which is an audit trail rather than a result: the delivered consensus comes from the second pass, which is always published.
-
-Per-consensus VP1 tables are not published either: every row of them is already in `<run_name>_vp1_genotypes.tsv`.
+Everything is published as a **copy**, and every optional output is gated with `saveAs` returning `null` rather than with `enabled`. 
 
 ## Databases
 
@@ -176,7 +172,7 @@ FASTA headers must follow:
 
 `db/VP1_NT_from_picorna.fasta` — nucleotide VP1 sequences extracted from the genome database above, each labelled with its curated tag. Typing is done with `blastn`; the BLAST index is built inside the task, so no index files are stored in the repository.
 
-**Regenerate this whenever the genome database changes**, or the two will drift apart:
+**Regenerate this whenever the genomes database changes**, or the two will drift apart:
 
 ```bash
 bin/build_vp1_nt_db.py \
@@ -191,7 +187,7 @@ bin/build_vp1_nt_db.py \
 
 ## Adding a new genotype
 
-New rhinovirus (and enterovirus) types keep being described. The genome database and the VP1 typing database **must be updated together** — the VP1 database is *derived* from the genome database, so editing one without rebuilding the other silently leaves them out of sync, and the new genotype will be assembled but typed as its nearest neighbour.
+New rhinovirus and enterovirus types keep being described. The genome database and the rhinovirus VP1 typing database **must be updated together** — the VP1 database is *derived* from the genome database, so editing one without rebuilding the other silently leaves them out of sync, and the new genotype will be assembled but typed as its nearest neighbour.
 
 ### 1. Add the genome to the reference database
 
@@ -312,13 +308,15 @@ A `no_hit` result is not a failure — non-rhinovirus consensuses (enterovirus, 
 ## Known limitations
 
 - Two strains of the **same** genotype in one sample collapse into a single assembly (one reference per tag).
-- Conversely, one virus can be assembled **twice** against two different genotype references of its species, looking like a co-infection. The consensus-vs-consensus check flags this as `possible_same_genome`; it is detected and reported, not prevented.
+- Conversely, one virus can be assembled **twice** against two different but closely related genotype references of its species, looking like a co-infection. The consensus-vs-consensus check flags this as `possible_same_genome`; it is detected and reported, not prevented.
 - Only the **forward** primer is trimmed in `--mode amplicon`, which matches a design whose reverse primer anneals to the poly(A) tail. A multi-amplicon (tiling) scheme would need a full primer BED instead.
-- The consensus and the VCF apply **different mapping-quality filters**: `iVar` builds the consensus from a pileup with no MAPQ floor (the iVar convention: `--min-BQ 0` in mpileup, quality filtering delegated to `ivar -q`), while `bcftools mpileup` uses `--min-MQ 20`. On a 7 kb non-repetitive genome the two agree in practice, but at a repetitive locus the VCF can be blank where the consensus called a base.
+- The consensus and the VCF for intra-sample study apply **different filters**: `iVar` builds the consensus from a pileup with no mapping-quality floor (the iVar convention: `--min-BQ 0` in mpileup, base-quality filtering delegated to `ivar -q 20`) and masks as N any position below `--ivar_fin_m`, 5x by default; `bcftools mpileup` applies `--min-MQ 20` and `--min-BQ 20` and imposes **no depth minimum at all** — it simply omits positions with no reads, so a VCF stops where coverage stops. On a 7 kb non-repetitive genome the two agree in practice, but at a repetitive locus the VCF can be blank where the consensus called a base.
 - A genotype present in the sample but **absent from the genome database** scatters its reads across related genotypes, several of which may pass the selection thresholds with partial (~35–55%) coverage. Genuine detections typically show ~99–100% coverage.
 
 ## Credits
 
 This pipeline is a modified fork of [**revica-strm**](https://github.com/greninger-lab/revica-strm) by Eli Piliper, Jaydee Sereewit, Stephanie Goya and Alex L. Greninger (UW Medicine, Department of Laboratory Medicine and Pathology, University of Washington), which is itself derived from [REVICA](https://github.com/greninger-lab/revica).
+
+Part of the adaptation of revica-strm into picorna-strm was carried out with the assistance of Anthropic's Claude (`claude-opus-5`, 2026). Every change was specified, reviewed and validated against real sequencing data by the author, who is responsible for the pipeline's behaviour.
 
 Licensed under the GNU General Public License, following upstream.

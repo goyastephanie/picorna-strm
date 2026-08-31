@@ -6,6 +6,7 @@ abstract: >-
   genomes from short-read sequencing, with optional VP1 genotyping. Based on
   revica-strm, adapted for the genetic diversity of picornaviruses.
 type: software
+repository-code: "https://github.com/greninger-lab/picorna-strm"
 authors:
   - family-names: "Goya"
     given-names: "Stephanie"
