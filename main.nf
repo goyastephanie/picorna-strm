@@ -14,7 +14,7 @@ Alex L Greninger <agrening@uw.edu>
 UW Medicine | Virology
 Department of Laboratory Medicine and Pathology
 University of Washington
-LICENSE: GNU
+LICENSE: GPL-3.0
 ----------------------------------------------------------------------------------------
  */
 

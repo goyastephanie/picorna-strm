@@ -319,4 +319,4 @@ This pipeline is a modified fork of [**revica-strm**](https://github.com/grening
 
 Part of the adaptation of revica-strm into picorna-strm was carried out with the assistance of Anthropic's Claude (`claude-opus-5`, 2026). Every change was specified, reviewed and validated against real sequencing data by the author, who is responsible for the pipeline's behaviour.
 
-Licensed under the GNU General Public License, following upstream.
+Licensed under the GNU General Public License v3.0 — see [LICENSE](LICENSE).
