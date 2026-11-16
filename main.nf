@@ -210,12 +210,28 @@ def write_software_versions(git) {
     if (params.run_kraken2 && params.kraken2_db) {
         y << "  kraken2_db: ${params.kraken2_db}\n"
     }
+    // Images as actually executed, from this run's trace (cached tasks included).
+    // workflow.container is no use here: it only sees containers set in config
+    // files, so the images declared inside the modules never appeared.
     y << "\ncontainers:\n"
-    def c = workflow.container
-    if (c instanceof Map) {
-        c.sort { it.key }.each { proc, img -> y << "  ${proc}: ${img ?: 'none'}\n" }
+    def trace = file(params.trace_file)
+    if (trace.exists()) {
+        def rows = trace.readLines()
+        def header = rows[0].split('\t') as List
+        def i_proc = header.indexOf('process')
+        def i_img = header.indexOf('container')
+        def images = new TreeMap()
+        rows.drop(1).each { line ->
+            def f = line.split('\t', -1)
+            def img = f[i_img] && f[i_img] != '-' ? f[i_img] : 'none'
+            images.get(f[i_proc], new TreeSet()) << img
+        }
+        images.each { proc, imgs ->
+            y << (imgs.size() == 1 ? "  ${proc}: ${imgs.first()}\n" : "  ${proc}: [${imgs.join(', ')}]\n")
+        }
+        y << "  # source: ${trace.name}\n"
     } else {
-        y << "  all_processes: ${c ?: 'none'}\n"
+        y << "  NA: execution trace not found (${params.trace_file})\n"
     }
     def dir = file("${params.output}/pipeline_info")
     dir.mkdirs()
