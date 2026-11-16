@@ -123,15 +123,68 @@ def md5_of(db_path) {
     }
 }
 
-def write_software_versions() {
+// workflow.commitId / workflow.revision are only set when Nextflow pulls the
+// pipeline itself (`nextflow run <org>/<repo>`). The wrapper always runs a local
+// main.nf, so for a git checkout ask git directly. Called once at launch, so the
+// record matches the code that actually ran even if the checkout changes later.
+def git_of(dir) {
+    def git = { args ->
+        try {
+            def p = (['git', '-C', dir.toString()] + args).execute()
+            def out = new StringBuffer()
+            p.consumeProcessOutput(out, new StringBuffer())
+            p.waitForOrKill(10000)
+            return p.exitValue() == 0 ? out.toString().trim() : null
+        } catch (Exception e) {
+            return null
+        }
+    }
+    def commit = git(['rev-parse', 'HEAD'])
+    if (!commit) return null
+    // tracked files only: a commit hash says nothing about uncommitted edits
+    def changes = git(['status', '--porcelain', '--untracked-files=no'])
+    return [
+        commit : commit,
+        branch : git(['rev-parse', '--abbrev-ref', 'HEAD']) ?: 'NA',
+        remote : git(['config', '--get', 'remote.origin.url']) ?: 'NA',
+        changes: changes ? changes.readLines()*.trim() : [],
+    ]
+}
+
+def pipeline_git = workflow.commitId ? null : git_of(workflow.projectDir)
+if (pipeline_git) {
+    log.info "  pipeline commit : ${pipeline_git.commit.take(7)} (${pipeline_git.branch})" +
+        (pipeline_git.changes ? " + ${pipeline_git.changes.size()} uncommitted change(s)" : '')
+} else if (!workflow.commitId) {
+    log.warn "Pipeline directory is not a git checkout: the commit cannot be recorded."
+}
+
+def write_software_versions(git) {
     def y = new StringBuilder()
     y << "# picorna-strm software version registry\n"
     y << "# Container image tags are the authoritative record of tool versions.\n\n"
     y << "pipeline:\n"
     y << "  name: ${workflow.manifest.name ?: 'picorna-strm'}\n"
     y << "  version: ${workflow.manifest.version ?: 'unversioned'}\n"
-    y << "  revision: ${workflow.revision ?: 'NA'}\n"
-    y << "  commit: ${workflow.commitId ?: 'NA (run from a local directory)'}\n"
+    if (workflow.commitId) {
+        y << "  revision: ${workflow.revision ?: 'NA'}\n"
+        y << "  commit: ${workflow.commitId}\n"
+        y << "  commit_source: nextflow\n"
+    } else if (git) {
+        y << "  revision: ${git.branch}\n"
+        y << "  commit: ${git.commit}\n"
+        y << "  commit_source: git (local checkout)\n"
+        y << "  remote: ${git.remote}\n"
+        if (git.changes) {
+            y << "  uncommitted_changes:\n"
+            git.changes.each { y << "    - ${JsonOutput.toJson(it)}\n" }
+        } else {
+            y << "  uncommitted_changes: none\n"
+        }
+    } else {
+        y << "  revision: NA\n"
+        y << "  commit: NA (not a git checkout)\n"
+    }
     y << "  projectDir: ${workflow.projectDir}\n\n"
     y << "run:\n"
     y << "  nextflow: ${workflow.nextflow.version}\n"
@@ -174,7 +227,7 @@ workflow.onComplete {
         log.warn "Could not write params.json: ${e.message}"
     }
     try {
-        write_software_versions()
+        write_software_versions(pipeline_git)
     } catch (Exception e) {
         log.warn "Could not write software_versions.yml: ${e.message}"
     }
