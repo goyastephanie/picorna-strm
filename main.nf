@@ -139,6 +139,10 @@ def git_of(dir) {
             return null
         }
     }
+    // a pipeline copied into some other repository would otherwise report
+    // that repository's commit
+    def top = git(['rev-parse', '--show-toplevel'])
+    if (!top || new File(top).canonicalPath != new File(dir.toString()).canonicalPath) return null
     def commit = git(['rev-parse', 'HEAD'])
     if (!commit) return null
     // tracked files only: a commit hash says nothing about uncommitted edits
