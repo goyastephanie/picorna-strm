@@ -54,7 +54,7 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
 
 {header("General:")}
 {B_BLUE}INPUT_DIR{CLR}           {ARG_PATH}      Input path (should be a directory) with FASTQ/FASTQ.gz files
---output            {ARG_PATH}      Output directory (default: 'revica_output')
+--output            {ARG_PATH}      Output directory (default: 'picorna_output')
 --run_name          {ARG_TEXT}      Name of the analysis run (default: 'run')
 --refs              {ARG_PATH}      Reference FASTA file (default: assets/PICORNA_DB_v20280814_tag.fasta)
 --print_log         {ARG_FLAG}      Print pipeline output to screen
@@ -316,7 +316,7 @@ def validate_input_dir(dir):
     if not os.path.isdir(dir):
         print(f"{B_RED}ERROR:{CLR} INPUT_DIR '{dir}' is not an existing directory.")
         print("\nThe first non-flag argument must be the directory holding your FASTQ files:")
-        print(f"  picorna-strm {B_BLUE}<FASTQ_DIR>{CLR} --local -profile docker --output <out_dir>")
+        print(f"  picorna-strm {B_BLUE}<FASTQ_DIR>{CLR} -profile docker --output <out_dir>")
         print(
             "\nIf you did pass a FASTQ directory, check that it comes before any "
             "option that takes a value -- otherwise it is read as that option's value."
@@ -413,22 +413,6 @@ def make_samplesheet(dir, samplesheet_name="samplesheet.csv", sep=","):
             _ = outf.write(f"{sample}{sep}{sep.join(fastqs)}\n")
 
 
-def check_commit_history():
-    output = subprocess.run(
-        ["nextflow", "pull", "greninger-lab/revica-strm"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    if "contains uncommitted changes" in str(output.stdout):
-        print(output.stdout.decode("utf-8"))
-        print(f"{B_RED}This is a routine error. To correct this, please run:{CLR}")
-        print("rm -r ~/.nextflow/assets/greninger-lab/revica-strm/")
-        print("And confirm deletion of all files (this clears nextflow's cache).")
-        sys.exit(0)
-    else:
-        print(f"{B_GREEN}Commit history clean. Proceeding...{CLR}")
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(add_help=False, exit_on_error=False)
     _ = parser.add_argument("input", help=argparse.SUPPRESS)
@@ -437,9 +421,8 @@ if __name__ == "__main__":
     )
     _ = parser.add_argument("--print_log", action="store_true", help=argparse.SUPPRESS)
     _ = parser.add_argument("-h", "--help", action="store_true", help=argparse.SUPPRESS)
-    # Accepted and ignored: this fork always runs from the local checkout, so the
-    # upstream "pull from GitHub" path does not exist. Kept so old command lines
-    # that still pass --local do not fail.
+    # Accepted and ignored: the pipeline always runs from the local checkout.
+    # Kept so old command lines that still pass --local do not fail.
     _ = parser.add_argument("--local", action="store_true", default=True, help=argparse.SUPPRESS)
 
     try:
@@ -465,40 +448,26 @@ if __name__ == "__main__":
     print_divider(B_YELLOW)
 
     print_title("RUN LOAD", B_BLUE)
-    if args.local:
-        # Resolve main.nf relative to THIS script, not to the current working
-        # directory, so --local works from anywhere (e.g. from the FASTQ dir).
-        # Nextflow takes the pipeline's own nextflow.config, bin/ and assets/
-        # from the directory holding main.nf, so an absolute path is safe.
-        exc_path = os.path.dirname(os.path.abspath(__file__))
-        main_nf = os.path.join(exc_path, "main.nf")
+    # Resolve main.nf relative to THIS script, not to the current working
+    # directory, so the wrapper works from anywhere (e.g. from the FASTQ dir).
+    # Nextflow takes the pipeline's own nextflow.config, bin/ and assets/
+    # from the directory holding main.nf, so an absolute path is safe.
+    exc_path = os.path.dirname(os.path.abspath(__file__))
+    main_nf = os.path.join(exc_path, "main.nf")
 
-        if not os.path.exists(main_nf):
-            # fall back to the current directory for backwards compatibility
-            if os.path.exists("main.nf"):
-                main_nf = os.path.abspath("main.nf")
-            else:
-                print(
-                    f"Cannot find main.nf next to this script ({exc_path}) "
-                    "nor in the current directory (pipeline is not downloaded. Exiting...)"
-                )
-                exit(1)
+    if not os.path.exists(main_nf):
+        # fall back to the current directory for backwards compatibility
+        if os.path.exists("main.nf"):
+            main_nf = os.path.abspath("main.nf")
+        else:
+            print(
+                f"Cannot find main.nf next to this script ({exc_path}) "
+                "nor in the current directory (pipeline is not downloaded. Exiting...)"
+            )
+            exit(1)
 
-        print(f"Running pipeline locally from {os.path.dirname(main_nf)} ...")
-        run_cmd = ["nextflow", "run", main_nf, "--input", "samplesheet.csv"] + extra
-    else:
-        print(f"Running pipeline (most recent commit on branch {args.branch})")
-        check_commit_history()
-        run_cmd = [
-            "nextflow",
-            "run",
-            "greninger-lab/revica-strm",
-            "-r",
-            args.branch,
-            "-latest",
-            "--input",
-            "samplesheet.csv",
-        ] + extra
+    print(f"Running pipeline locally from {os.path.dirname(main_nf)} ...")
+    run_cmd = ["nextflow", "run", main_nf, "--input", "samplesheet.csv"] + extra
 
     print_divider(B_BLUE)
 
