@@ -12,7 +12,6 @@ dag.dot*
 # pipeline outputs
 results/
 results_*/
-revica_output/
 picorna_output/
 resultados*/
 samplesheet.csv
