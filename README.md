@@ -2,7 +2,7 @@
 
 **Reference-based assembly and VP1 genotyping of picornavirus genomes from short-read metagenomic, capture and amplicon sequencing.**
 
-`picorna-strm` is **based on [revica-strm](https://github.com/greninger-lab/revica-strm)** (Greninger Lab, UW Virology), adapted and re-tuned for picornaviruses — small RNA virus genomes with extraordinary genetic diversity. It keeps revica-strm's two-pass consensus strategy and adds a curated picornavirus reference database, sequencing-mode presets (amplicon / capture / metagenomic), amplicon primer trimming, VP1 genotyping, per-position variant calling, a consensus-vs-consensus contamination and duplicate-assembly check, a software version registry, and a number of correctness fixes.
+`picorna-strm` is **based on [revica-strm](https://github.com/greninger-lab/revica-strm)** (Greninger Lab, UW Virology), adapted and re-tuned for picornaviruses — small RNA virus genomes with extraordinary genetic diversity. It keeps revica-strm's two-pass consensus strategy and adds a curated picornavirus reference database, sequencing-mode presets (amplicon / capture / metagenomic), amplicon primer trimming, VP1 genotyping, per-position variant calling, a consensus-vs-consensus contamination and duplicate-assembly check that also infers the most plausible source sample of each contaminant, a software version registry, and a number of correctness fixes.
 
 This is an independent fork: the pipeline is expected to keep diverging from upstream as it is further adapted to picornavirus biology.
 
@@ -21,6 +21,7 @@ For each sample, the pipeline runs:
 7. **Per-position VCF** — `bcftools mpileup` on that final alignment against the sample's own consensus, recording intra-host diversity at every covered position.
 8. *(optional)* **VP1 genotyping** — each final consensus is typed by `blastn` against a nucleotide VP1 database.
 9. **Consensus-vs-consensus check** — all final consensuses of the run are compared against each other: near-identical pairs from *different* samples are flagged as possible contamination, and near-identical pairs from the *same* sample as one virus assembled against two genotype references.
+10. **Contamination network** — identity cannot tell which genome of a flagged pair is the contaminant, so the pairs are read together with the abundance of each genome in its sample. A low-abundance genome linked to a high-abundance one in another sample is classified `REMOVE_CONTAMINANT` and its partner `KEEP_SOURCE`; anything that cannot be resolved safely (two high-abundance samples sharing a genome, or a low-abundance genome with no source in the run) is kept as `KEEP_UNRESOLVED`. The result is a set of decision tables: no assembly is deleted.
 
 VP1 typing is deliberately **decoupled** from reference selection: assembly still uses whole-genome mapping, and VP1 provides the authoritative genotype call on top of the finished consensus. Rhinovirus types are defined by VP1 divergence, so VP1 can resolve genotype pairs that whole-genome mapping cannot separate.
 
@@ -138,6 +139,7 @@ Inside `--output`:
 | `<run_name>_summary.tsv` | 19 columns per assembly: raw/trimmed reads, mapped reads, coverage and mean depth for both alignment passes, consensus length, Ns and ambiguity codes |
 | `<run_name>_vp1_genotypes.tsv` | consolidated VP1 genotype calls |
 | `<run_name>_contamination.tsv` | all-vs-all comparison of the run's consensuses; flags possible contamination and duplicate assemblies |
+| `contamination_results/` | contamination network: `cleanup_recommendations.tsv` (one decision per sample-genome, with candidate source, abundances, ratio, identity and reason), `removal_manifest.tsv` (summary rows classified `REMOVE_CONTAMINANT`), `cleaned_run_summary.tsv` (the run summary without them), the network itself (`collapsed_genome_nodes.tsv`, `contamination_edges.tsv`, `inferred_source_recipient_edges.tsv`, `network_components.tsv`, `same_genome_collapse_map.tsv`) and `analysis_report.txt` |
 | `<run_name>_multiqc.html` | MultiQC report |
 | `fail/` | references and samples that did not pass thresholds |
 | `pipeline_info/software_versions.yml` | container image per process (as actually executed, taken from the execution trace), Nextflow build, pipeline commit (read from git when run from a local checkout, with any uncommitted changes listed), database MD5s |
@@ -286,6 +288,11 @@ git commit -m "Add RV-Axx (<accession>); rebuild VP1 typing database"
 | `--contam_same_genome_identity` | `99.0` | flag two assemblies of **one** sample above this identity as the same virus |
 | `--contam_min_comparable` | `500` | minimum unambiguous overlap needed to judge a pair |
 | `--contam_intraspecies_only` | on | compare only consensuses whose tag prefix (RV-A, RV-C, EV-B, …) matches |
+| `--contam_network` | on | infer the contaminant of each flagged pair from abundance (`contamination_results/`); needs `--check_contamination` |
+| `--contam_source_min_pct` / `--contam_contaminant_max_pct` | `20` / `10` | % of the sample's reads (`pct_reads_mapped_c1`) above which a genome can be a source, and at or below which it can be removed automatically |
+| `--contam_source_ratio` | `5` | minimum source:recipient abundance ratio for `REMOVE_CONTAMINANT` |
+| `--contam_high_conf_ratio` / `--contam_high_conf_identity` | `10` / `99.95` | ratio and % identity for a `HIGH` confidence call |
+| `--contam_network_metric` | `c1` | abundance metric: `c1` (second-pass mapping) or `ref` (mapping against the database reference) |
 | `--call_variants` | on | per-position VCF (`vcf/`), in the coordinates of the **first** consensus, which is the reference of the alignment it is built from |
 | `--rhinovirus` | off | enable VP1 genotyping |
 | `--run_kraken2` + `--kraken2_db` | off | remove host reads before assembly (see `docs/making_kraken2_human_db.md`) |
