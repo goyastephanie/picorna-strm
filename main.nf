@@ -3,18 +3,19 @@
    ========================================================================================
    picorna-strm
    ========================================================================================
-   Based on revica-strm (https://github.com/greninger-lab/revica-strm),
-   adapted for picornavirus genomes.
+   Reference-based assembly and VP1 genotyping of picornavirus genomes.
 
 Author:
-Eli Piliper <epil02@uw.edu>
-Jaydee Sereewit <aseree@uw.edu>
 Stephanie Goya <sgoya@uw.edu>
-Alex L Greninger <agrening@uw.edu>
 UW Medicine | Virology
 Department of Laboratory Medicine and Pathology
 University of Washington
-LICENSE: GNU
+
+Based on revica-strm (https://github.com/greninger-lab/revica-strm) by
+Eli Piliper, Jaydee Sereewit, Stephanie Goya and Alex L Greninger,
+modified and adapted for picornavirus genomes.
+
+LICENSE: GPL-3.0
 ----------------------------------------------------------------------------------------
  */
 
