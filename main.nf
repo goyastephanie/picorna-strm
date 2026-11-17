@@ -56,7 +56,13 @@ log.info "  primer trimming : ${do_primer_trim ? "yes (${params.primer_fwd})" : 
 log.info "  subsampling     : ${sample_size ? "${sample_size} reads" + (sample_size != params.sample ? " (capped by --amplicon_max_sample)" : '') : 'off'}"
 log.info "  per-position VCF: ${params.call_variants ? 'yes' : 'no'}"
 log.info "  iVar variants   : ${params.ivar_variants ? 'yes' : 'no'}"
+log.info "  contamination   : ${!params.check_contamination ? 'no' : params.contam_network ? 'pairwise check + network' : 'pairwise check'}"
 log.info ""
+
+// contamination network: only runs with --check_contamination, whose table it reads
+if (params.contam_network && params.check_contamination && !(params.contam_network_metric in ['c1', 'ref'])) {
+    exit 1, "Invalid --contam_network_metric '${params.contam_network_metric}'. Choose one of: c1, ref"
+}
 
 // optional rhinovirus VP1 genotyping module
 if (params.rhinovirus) {
@@ -82,6 +88,7 @@ include { VP1_TYPE                  } from './modules/vp1_type'
 include { IVAR_VARIANTS             } from './modules/ivar_variants'
 include { BCFTOOLS_MPILEUP          } from './modules/bcftools_mpileup'
 include { CHECK_CONTAMINATION       } from './modules/check_contamination'
+include { CONTAMINATION_NETWORK     } from './modules/contamination_network'
 
 ////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////
@@ -312,13 +319,26 @@ workflow {
                 ch_summary_in
                 )
 
-            SUMMARY.out.summary
+            ch_run_summary = SUMMARY.out.summary
             .collectFile(storeDir: "${params.output}", name:"${params.run_name}_summary.tsv", keepHeader: true, sort: true)
 
             SUMMARY.out.ready_to_concat
             .collect()
             .map { it -> true }
         .set { all_summaries_done }
+
+        //
+        // Contamination network: reads the pairwise table above together with
+        // the run summary, because direction (who contaminated whom) comes from
+        // the abundance of each genome in its sample, which only the summary
+        // holds.
+        //
+        if (params.check_contamination && params.contam_network) {
+            CONTAMINATION_NETWORK (
+                ch_run_summary,
+                CHECK_CONTAMINATION.out.tsv
+            )
+        }
 
     }
 }

@@ -196,6 +196,28 @@ picorna-strm {B_BLUE}INPUT_DIR{CLR} (other options)
                                     trailing serotype number: RV-A51 vs RV-A77 yes, RV-A51 vs RV-C11 no
                                     (default: true)
 
+{header("Contamination network (who contaminated whom)")}
+--contam_network    {ARG_FLAG}      Infer, from abundance, which genome of each possible_contamination pair
+                                    is the contaminant, and write decision tables to
+                                    <output>/contamination_results/ (default: true; needs
+                                    --check_contamination). Nothing is deleted: removal_manifest.tsv lists
+                                    the rows to drop and cleaned_run_summary.tsv is the summary without them.
+                                      REMOVE_CONTAMINANT         -> low abundance, linked to a high-abundance source
+                                      KEEP_SOURCE                -> the most plausible origin
+                                      KEEP_UNRESOLVED            -> direction cannot be inferred safely
+                                      KEEP_NO_CONTAMINATION_LINK -> no possible_contamination pair
+--contam_network_metric {ARG_TEXT}  Abundance metric: c1 (second-pass mapping) or ref (database reference)
+                                    (default: c1)
+--contam_source_min_pct {ARG_DECIMAL}
+                                    Min % of the sample's reads for a candidate source (default: 20)
+--contam_contaminant_max_pct {ARG_DECIMAL}
+                                    Max % of the sample's reads for an automatic REMOVE_CONTAMINANT (default: 10)
+--contam_source_ratio {ARG_DECIMAL} Min source:recipient abundance ratio (default: 5)
+--contam_high_conf_ratio {ARG_DECIMAL}
+                                    Ratio needed for HIGH confidence (default: 10)
+--contam_high_conf_identity {ARG_DECIMAL}
+                                    % identity needed for HIGH confidence (default: 99.95)
+
 {header("Reference selection thresholds")}
 --ref_min_depth     {ARG_INT}       The minimum depth an alignment against a reference must have to qualify for assembly (default: 3)
 --ref_min_cov       {ARG_INT}       The minimum coverage (in percent) an alignment against a reference to qualify for assembly (default: 30)
@@ -248,6 +270,8 @@ VALUE_OPTS = {
     "vcf_min_bq", "vcf_min_mq", "vcf_max_depth",
     "ivar_var_q", "ivar_var_t", "ivar_var_m",
     "contam_min_comparable", "contam_flag_identity", "contam_same_genome_identity",
+    "contam_network_metric", "contam_source_min_pct", "contam_contaminant_max_pct",
+    "contam_source_ratio", "contam_high_conf_ratio", "contam_high_conf_identity",
     "ref_min_depth", "ref_min_cov",
     "mpileup_max_depth", "mpileup_max_depth_final",
     "cons_init_min_depth", "cons_init_min_cov",
