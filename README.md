@@ -88,23 +88,27 @@ If filenames contain no underscore, the same logic applies to the first `.`.
 | `capture` | no | hybridization capture / enrichment |
 | `metagenomic` | no | shotgun metagenomics (default) |
 
-Amplicon reads carry primer-derived bases that reflect the primer pool rather than the sample, so they must be removed; deduplication, on the other hand, would be actively harmful here, because amplicon reads share start coordinates by design.
-
-`capture` currently behaves exactly like `metagenomic`. It exists as its own mode so that capture-specific handling can be added later without changing anyone's command line. Coordinate-based deduplication was evaluated and removed: on a 7 kb genome sequenced single-end, read start positions saturate, and duplicate marking discarded ~97% of real reads in test data.
-
-Primer trimming is applied to **each of the two alignment passes**, so the first consensus, the final consensus and the variant calls all come from the same corrected alignment.
+`capture` currently behaves exactly like `metagenomic`. It exists as its own mode so that capture-specific handling can be added later without changing anyone's command line. Coordinate-based deduplication was evaluated for it and removed: on a 7 kb genome sequenced single-end, read start positions saturate, and duplicate marking discarded ~97% of real reads in test data. For the same reason no mode deduplicates amplicon reads, which share their start coordinates by design.
 
 ### Primer trimming
 
-Trimming uses `ivar trim` (iVar 1.4.4, pinned in the container). Trimming is by **coordinate**, not by matching the primer sequence in the read, so reads carrying only part of the primer are handled correctly. The coordinates are located per task with `bin/make_primer_bed.py`, which searches the reference of that particular alignment for `--primer_fwd` (IUPAC codes supported, up to `--primer_max_mismatch` mismatches, both strands). The search is repeated for each alignment pass because the two references are different sequences.
+**Why.** In `--mode amplicon` the genome is amplified from a forward primer in the 5'UTR (`--primer_fwd`, by default `TCCTCCGGYCCCTGAATGYGGCTAA`) to the poly(A) tail. Reads that start at the forward primer carry the primer's sequence, not the sample's, at those positions. Left in place, those bases end up in the consensus and the VCF; at the primer's degenerate positions (the two `Y`s) they even show up as IUPAC ambiguity codes, because the primer pool carries both bases while the sample has only one. The reverse primer anneals to the poly(A) tail, so there is nothing to trim at the 3' end.
 
-Against the **database reference** the primer sits at its genomic coordinate — around position 300-450 of the 5'UTR, and different in every genotype — so it is found and trimmed. This is the primary trim, and doing it here matters: the first consensus becomes the reference for the second alignment and for the VCF, so primer-derived bases must not reach it. Left untrimmed they are clearly visible, including IUPAC ambiguity codes at the primer's degenerate positions (`TCCTCCGG**Y**CCCTGAATG**Y**GGCTAA`) — the sample has one base there, the primer pool has both.
+**How.** For each alignment:
 
-Against the **sample's own first consensus** the search acts as a safety net. If pass 1 worked, the consensus begins just downstream of the primer, the BED comes back empty and nothing is trimmed — correct, because reads still carrying the primer have those bases hanging off the 5' end and the aligner soft-clips them anyway. If any primer did survive into the first consensus it is caught here; since quality trimming leaves a variable amount of primer on each read, that residual is often *truncated*, so the search also matches a primer overhanging the end of the reference (the `--min_overlap` option of `bin/make_primer_bed.py`, 10 bases; not exposed as a pipeline flag). Both paths give a primer-free final consensus and VCF.
+1. `bin/make_primer_bed.py` finds the primer in the reference of that alignment (IUPAC codes allowed, up to `--primer_max_mismatch` mismatches, both strands) and writes its position as a BED.
+2. `ivar trim` (iVar 1.4.4) soft-clips the reads overlapping that position. Trimming is by **coordinate**, not by matching the primer in each read, so reads that carry only part of the primer are trimmed too. Reads without primer are kept (`-e`), so coverage elsewhere is unaffected.
 
-The default primer is the conserved 5'UTR forward primer `TCCTCCGGYCCCTGAATGYGGCTAA`. The reverse primer anneals to the genomic poly(A) tail, so there is nothing to trim at the 3' end. If the primer is not found in a given reference, an empty BED is written and the alignment passes through untrimmed rather than failing.
+If the primer is not found in a reference, the BED is empty and that alignment continues untrimmed instead of failing.
 
-Reads that contain no primer are kept (`ivar trim -e`), so coverage away from the primer-binding site is unaffected.
+**When.** The primer is searched for and trimmed in **both** alignment passes, because each pass aligns to a different reference:
+
+| Pass | Reference | What normally happens |
+|---|---|---|
+| 1 | database reference | The primer is found at its position in the 5'UTR (~300-450 nt, different in every genotype) and trimmed. This is the trim that matters: the first consensus built from this alignment becomes the reference of pass 2 and of the VCF, so it must be primer-free. |
+| 2 | the sample's first consensus | Nothing to trim. After pass 1 nothing covers the primer site, so the first consensus starts just downstream of it and the primer is not found. This pass is a safety net: if part of the primer did reach the first consensus, it is trimmed here. Because quality trimming leaves a variable amount of primer on each read, such a remnant is usually truncated, so the search also accepts a primer that is only partly present at the start of the reference, as long as at least 10 of its bases are there. |
+
+The primer BEDs are published in `primer_trim/`. Primer trimming can also be turned on outside amplicon mode with `--trim_primers`.
 
 ## Per-position VCF (intra-host diversity)
 
