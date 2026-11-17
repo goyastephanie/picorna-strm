@@ -44,6 +44,12 @@ chmod +x picorna-strm bin/*.py
 
 The first non-flag argument is the FASTQ directory; it must come **before** any option that takes a value.
 
+To check an installation, run the bundled test (one rhinovirus A51 amplicon sample, 20,000 reads, a few minutes; expected results in [`tests/README.md`](tests/README.md)):
+
+```bash
+nextflow run main.nf -profile test,docker
+```
+
 Typical runs:
 
 ```bash

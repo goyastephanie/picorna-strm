@@ -14,6 +14,7 @@ results/
 results_*/
 revica_output/
 picorna_output/
+test_output/
 resultados*/
 samplesheet.csv
 params.json
@@ -50,6 +51,7 @@ params.json
 *.fq.gz
 *.bam
 *.bai
+!tests/data/*.fastq.gz
 
 # OS / editors
 .DS_Store
