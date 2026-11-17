@@ -140,7 +140,8 @@ Inside `--output`:
 | `<run_name>_contamination.tsv` | all-vs-all comparison of the run's consensuses; flags possible contamination and duplicate assemblies |
 | `<run_name>_multiqc.html` | MultiQC report |
 | `fail/` | references and samples that did not pass thresholds |
-| `pipeline_info/software_versions.yml` | container image per process, Nextflow build, pipeline revision, database MD5s |
+| `pipeline_info/software_versions.yml` | container image per process (as actually executed, taken from the execution trace), Nextflow build, pipeline commit (read from git when run from a local checkout, with any uncommitted changes listed), database MD5s |
+| `pipeline_info/execution_trace_<timestamp>.txt` | one row per task: process, status, exit code, container, CPUs, memory, run time, peak RSS. One file per launch, so re-running into the same `--output` keeps earlier traces |
 | `params.json` | every parameter the run actually used |
 
 The two FASTA files per assembly are **not** duplicates. `final_consensus_fasta/*_consensus_final.fa` is the delivered genome, called from the second alignment pass. `final_consensus_assemblies/*_consensus1.fa` is the intermediate scaffold: it is the reference the second-pass BAM is aligned to and the reference the VCF coordinates and REF alleles refer to, so deleting it makes the BAMs and VCFs uninterpretable. That is why it lives next to them rather than next to the deliverable.
