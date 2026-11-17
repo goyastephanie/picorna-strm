@@ -92,23 +92,16 @@ If filenames contain no underscore, the same logic applies to the first `.`.
 
 ### Primer trimming
 
-**Why.** In `--mode amplicon` the genome is amplified from a forward primer in the 5'UTR (`--primer_fwd`, by default `TCCTCCGGYCCCTGAATGYGGCTAA`) to the poly(A) tail. Reads that start at the forward primer carry the primer's sequence, not the sample's, at those positions. Left in place, those bases end up in the consensus and the VCF; at the primer's degenerate positions (the two `Y`s) they even show up as IUPAC ambiguity codes, because the primer pool carries both bases while the sample has only one. The reverse primer anneals to the poly(A) tail, so there is nothing to trim at the 3' end.
+In amplicon sequencing the genome is copied by PCR starting from a primer in the 5'UTR (`--primer_fwd`, by default `TCCTCCGGYCCCTGAATGYGGCTAA`), so many reads begin with the primer itself. Those first bases tell you what the primer looks like, not what the virus in the sample looks like, and if they were kept the consensus and the VCF would partly reflect the primer. You can see this when trimming is off: at the primer's two degenerate positions (the `Y`s, meaning C or T) the consensus gets an ambiguity code, simply because the primer mix contains both bases. The other end needs no trimming, because the reverse primer binds the poly(A) tail.
 
-**How.** For each alignment:
+To remove it, the pipeline first looks for the primer in the reference the reads were aligned to, allowing IUPAC codes and up to `--primer_max_mismatch` mismatches. Then `ivar trim` soft-clips whatever part of each read falls on that position. Because it works by position rather than by recognizing the primer inside each read, it also handles reads that carry only a piece of the primer. Reads that do not touch the primer are left as they are. If the primer cannot be found, for example because the reference is missing the start of the 5'UTR, the reads are used untrimmed.
 
-1. `bin/make_primer_bed.py` finds the primer in the reference of that alignment (IUPAC codes allowed, up to `--primer_max_mismatch` mismatches, both strands) and writes its position as a BED.
-2. `ivar trim` (iVar 1.4.4) soft-clips the reads overlapping that position. Trimming is by **coordinate**, not by matching the primer in each read, so reads that carry only part of the primer are trimmed too. Reads without primer are kept (`-e`), so coverage elsewhere is unaffected.
+This is done twice, once for each alignment:
 
-If the primer is not found in a reference, the BED is empty and that alignment continues untrimmed instead of failing.
+- **First alignment, against the database reference.** This is where the primer is actually removed, and where it matters most: the consensus built from this alignment becomes the reference for the second alignment and for the VCF.
+- **Second alignment, against the sample's own first consensus.** Usually there is nothing left to do. The primer was already removed, so the first consensus starts right after it. This step is a safety check: if a piece of primer slipped through, it is removed here, even when only part of it is present (at least 10 bases). That partial case is the typical one, because quality trimming leaves primer pieces of different lengths on different reads.
 
-**When.** The primer is searched for and trimmed in **both** alignment passes, because each pass aligns to a different reference:
-
-| Pass | Reference | What normally happens |
-|---|---|---|
-| 1 | database reference | The primer is found at its position in the 5'UTR (~300-450 nt, different in every genotype) and trimmed. This is the trim that matters: the first consensus built from this alignment becomes the reference of pass 2 and of the VCF, so it must be primer-free. |
-| 2 | the sample's first consensus | Nothing to trim. After pass 1 nothing covers the primer site, so the first consensus starts just downstream of it and the primer is not found. This pass is a safety net: if part of the primer did reach the first consensus, it is trimmed here. Because quality trimming leaves a variable amount of primer on each read, such a remnant is usually truncated, so the search also accepts a primer that is only partly present at the start of the reference, as long as at least 10 of its bases are there. |
-
-The primer BEDs are published in `primer_trim/`. Primer trimming can also be turned on outside amplicon mode with `--trim_primers`.
+The primer positions found in each alignment are saved in `primer_trim/`. Trimming can also be turned on outside amplicon mode with `--trim_primers`.
 
 ## Per-position VCF (intra-host diversity)
 
